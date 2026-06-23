@@ -82,6 +82,26 @@ export default function ChainList({ chains, searchTerm, isLoading, filters, feat
     );
   }
 
+  if (chains.length === 0) {
+    const hasFilters = filters.hosting.length > 0 || filters.networkTypes.length > 0 || filters.ecosystems.length > 0;
+    return (
+      <div className="w-full flex flex-col items-center py-16 text-center">
+        <svg className="mb-4 text-[#d0d5dd]" width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+          <circle cx="11" cy="11" r="8" />
+          <path d="m21 21-4.35-4.35" />
+        </svg>
+        <h3 className="text-lg font-semibold text-[#1d1d1f] mb-2">No results found</h3>
+        <p className="text-[#6b6b74] max-w-sm">
+          {searchTerm && hasFilters
+            ? `No chains match "${searchTerm}" with the selected filters.`
+            : searchTerm
+            ? `No chains match "${searchTerm}".`
+            : 'No chains match the selected filters.'}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <>
       {viewMode === 'list' ? (
