@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const provider = getBSCProvider();
+    const provider = await getBSCProvider();
 
     if (!lpToken) {
       lpToken = await getPairAddress(tokenA, tokenB, provider);

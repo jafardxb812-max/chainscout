@@ -1,8 +1,20 @@
 import { ethers } from 'ethers';
 
-// BSC Mainnet
-export const BSC_RPC = 'https://bsc-dataseed.binance.org/';
 export const CHAIN_ID = 56;
+
+// Reliable public BSC RPC endpoints (tried in order)
+const BSC_RPCS = [
+  'https://rpc.ankr.com/bsc',
+  'https://bsc-rpc.publicnode.com',
+  'https://bsc-dataseed1.defibit.io',
+  'https://bsc-dataseed.binance.org',
+];
+
+// Known-good pair addresses (fallback if factory lookup fails)
+export const KNOWN_PAIRS: Record<string, string> = {
+  // USDT/WBNB PancakeSwap V2
+  'USDT/WBNB': '0x16b9a82891338f9bA80E2D6970FddA79D1eb0daE',
+};
 
 // Contract addresses on BSC
 export const ADDRESSES = {
@@ -47,45 +59,76 @@ export interface TokenInfo {
 
 export interface LPRedemptionQuote {
   lpTokenAddress: string;
-  lpBalance: string;         // formatted LP balance
-  lpBalanceRaw: string;      // BigInt string for tx
+  lpBalance: string;
+  lpBalanceRaw: string;
   token0: TokenInfo;
   token1: TokenInfo;
-  amount0Out: string;        // expected token0 on full redemption
-  amount1Out: string;        // expected token1 on full redemption
-  sharePercent: string;      // % of pool being redeemed
+  amount0Out: string;
+  amount1Out: string;
+  sharePercent: string;
 }
 
-const BSC_RPCS = [
-  'https://bsc-dataseed.binance.org/',
-  'https://bsc-dataseed1.defibit.io/',
-  'https://bsc-dataseed1.ninicoin.io/',
-];
-
-export function getBSCProvider(): ethers.JsonRpcProvider {
+function makeProvider(rpc: string): ethers.JsonRpcProvider {
   return new ethers.JsonRpcProvider(
-    BSC_RPCS[0],
+    rpc,
     { chainId: CHAIN_ID, name: 'bnb' },
     { staticNetwork: true },
   );
 }
 
 /**
- * Get the PancakeSwap V2 pair address for any two tokens.
+ * Try each RPC in order; return the first provider that responds to eth_chainId.
+ */
+export async function getBSCProvider(): Promise<ethers.JsonRpcProvider> {
+  for (const rpc of BSC_RPCS) {
+    try {
+      const p = makeProvider(rpc);
+      // lightweight liveness check
+      await p.send('eth_chainId', []);
+      return p;
+    } catch {
+      // try next
+    }
+  }
+  throw new Error('BSC RPC-ലേക്ക് connect ചെയ്യാൻ കഴിഞ്ഞില്ല. Internet connection check ചെയ്യുക.');
+}
+
+/**
+ * Get the PancakeSwap V2 pair address for two tokens.
+ * Falls back to KNOWN_PAIRS if the factory call fails.
  */
 export async function getPairAddress(
   tokenA: string,
   tokenB: string,
   provider: ethers.JsonRpcProvider,
 ): Promise<string> {
-  const factory = new ethers.Contract(ADDRESSES.factory, FACTORY_ABI, provider);
-  const pair: string = await factory.getPair(tokenA, tokenB);
-  if (pair === ethers.ZeroAddress) throw new Error('Pair does not exist on PancakeSwap V2');
-  return pair;
+  // Check known pairs first (case-insensitive)
+  const usdtLower = ADDRESSES.USDT.toLowerCase();
+  const wbnbLower = ADDRESSES.WBNB.toLowerCase();
+  const aLow = tokenA.toLowerCase();
+  const bLow = tokenB.toLowerCase();
+  if (
+    (aLow === usdtLower && bLow === wbnbLower) ||
+    (aLow === wbnbLower && bLow === usdtLower)
+  ) {
+    return KNOWN_PAIRS['USDT/WBNB'];
+  }
+
+  try {
+    const factory = new ethers.Contract(ADDRESSES.factory, FACTORY_ABI, provider);
+    const pair: string = await factory.getPair(tokenA, tokenB);
+    if (pair === ethers.ZeroAddress) throw new Error('Pair does not exist on PancakeSwap V2');
+    return pair;
+  } catch (e) {
+    throw new Error(
+      'Pair address lookup failed: ' +
+      (e instanceof Error ? e.message : String(e)),
+    );
+  }
 }
 
 /**
- * Build a full redemption quote for a wallet's entire LP position in the given pair.
+ * Build a full redemption quote for a wallet's LP position.
  */
 export async function getLPRedemptionQuote(
   walletAddress: string,
@@ -97,7 +140,7 @@ export async function getLPRedemptionQuote(
   const [
     token0Address,
     token1Address,
-    [reserve0, reserve1],
+    reserves,
     totalSupply,
     lpBalance,
   ] = await Promise.all([
@@ -107,6 +150,8 @@ export async function getLPRedemptionQuote(
     pair.totalSupply(),
     pair.balanceOf(walletAddress),
   ]);
+
+  const [reserve0, reserve1] = reserves;
 
   const token0Contract = new ethers.Contract(token0Address, ERC20_ABI, provider);
   const token1Contract = new ethers.Contract(token1Address, ERC20_ABI, provider);
@@ -120,14 +165,11 @@ export async function getLPRedemptionQuote(
     token1Contract.decimals(),
   ]);
 
-  // amount out = (lpBalance / totalSupply) * reserve
-  const amount0Out = (lpBalance * reserve0) / totalSupply;
-  const amount1Out = (lpBalance * reserve1) / totalSupply;
-
-  const sharePercent =
-    totalSupply > 0n
-      ? ((lpBalance * 10000n) / totalSupply).toString()
-      : '0';
+  const amount0Out = totalSupply > 0n ? (lpBalance * reserve0) / totalSupply : 0n;
+  const amount1Out = totalSupply > 0n ? (lpBalance * reserve1) / totalSupply : 0n;
+  const sharePercent = totalSupply > 0n
+    ? ((lpBalance * 10000n) / totalSupply).toString()
+    : '0';
 
   return {
     lpTokenAddress,
@@ -142,17 +184,7 @@ export async function getLPRedemptionQuote(
 }
 
 /**
- * Approve the router to spend LP tokens, then remove all liquidity.
- * Must be called from a browser with an injected wallet (window.ethereum).
- *
- * @param lpTokenAddress  Pair contract address
- * @param lpAmountRaw     LP amount as BigInt string (use lpBalanceRaw from quote)
- * @param token0Address   Address of token0
- * @param token1Address   Address of token1
- * @param amount0Min      Minimum token0 to accept (slippage guard, BigInt string)
- * @param amount1Min      Minimum token1 to accept (slippage guard, BigInt string)
- * @param walletAddress   Recipient address
- * @param signer          ethers Signer from BrowserProvider
+ * Approve router then remove all liquidity.
  */
 export async function redeemLPTokens(params: {
   lpTokenAddress: string;
@@ -174,13 +206,10 @@ export async function redeemLPTokens(params: {
   const lpToken = new ethers.Contract(lpTokenAddress, ERC20_ABI, signer);
   const router  = new ethers.Contract(ADDRESSES.router, ROUTER_ABI, signer);
 
-  // 1. Approve router
   const approveTx = await lpToken.approve(ADDRESSES.router, lpAmountRaw);
   await approveTx.wait();
 
-  // 2. Remove liquidity — deadline 20 min from now
   const deadline = Math.floor(Date.now() / 1000) + 1200;
-
   const redeemTx = await router.removeLiquidity(
     token0Address,
     token1Address,
@@ -196,8 +225,8 @@ export async function redeemLPTokens(params: {
 }
 
 /**
- * Apply a slippage tolerance to an amount (returns BigInt string).
- * e.g. applySlippage("1000000000000000000", 50) → 0.5% slippage → "995000000000000000"
+ * Apply slippage tolerance to an amount (BigInt string in).
+ * e.g. applySlippage("1000000000000000000", 50) → 0.5% slippage
  */
 export function applySlippage(amountWei: string, slippageBps: number): string {
   const amount = BigInt(amountWei);

@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { ethers } from 'ethers';
 import {
+  getBSCProvider,
   getLPRedemptionQuote,
   redeemLPTokens,
   applySlippage,
@@ -84,11 +85,7 @@ export default function LPRedemption() {
     setError('');
     setLoading(true);
     try {
-      const provider = new ethers.JsonRpcProvider(
-        'https://bsc-dataseed.binance.org/',
-        { chainId: 56, name: 'bnb' },
-        { staticNetwork: true },
-      );
+      const provider = await getBSCProvider();
       let pairAddress = lpToken.trim();
       if (!pairAddress) {
         pairAddress = await getPairAddress(ADDRESSES.USDT, ADDRESSES.WBNB, provider);
