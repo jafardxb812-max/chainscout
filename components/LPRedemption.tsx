@@ -3,12 +3,8 @@
 import { useState, useCallback, useEffect } from 'react';
 import { ethers } from 'ethers';
 import {
-  getBSCProvider,
-  getLPRedemptionQuote,
   redeemLPTokens,
   applySlippage,
-  ADDRESSES,
-  getPairAddress,
   type LPRedemptionQuote,
 } from '@/utils/pancakeswap-lp';
 
@@ -85,14 +81,16 @@ export default function LPRedemption() {
     setError('');
     setLoading(true);
     try {
-      const provider = await getBSCProvider();
-      let pairAddress = lpToken.trim();
-      if (!pairAddress) {
-        pairAddress = await getPairAddress(ADDRESSES.USDT, ADDRESSES.WBNB, provider);
-        setLpToken(pairAddress);
+      // Quote is fetched server-side via API to avoid browser RPC restrictions
+      const params = new URLSearchParams({ wallet });
+      if (lpToken.trim()) params.set('lpToken', lpToken.trim());
+      const res = await fetch(`/api/lp-redemption?${params}`);
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.error ?? 'Quote fetch failed');
+      setQuote(json.quote);
+      if (json.quote.lpTokenAddress && !lpToken.trim()) {
+        setLpToken(json.quote.lpTokenAddress);
       }
-      const q = await getLPRedemptionQuote(wallet, pairAddress, provider);
-      setQuote(q);
     } catch (e: unknown) {
       setError(parseError(e));
     } finally {
