@@ -1,136 +1,128 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs/promises';
-import path from 'path';
-import { Chains } from '@/types';
+import { ETHERSCAN_API_URLS, isValidEVMAddress } from '@/utils/wallet';
 
-type BlockscoutTransaction = {
+type EtherscanTx = {
   hash: string;
-  timestamp: string;
-  status: 'ok' | 'error';
-  block: number;
-  value: string;
-  gas_price: string;
-  gas_used: string;
-  fee: { value: string; type: string };
-  from: { hash: string };
-  to: { hash: string } | null;
-  method: string | null;
-  tx_types: string[];
-  confirmations: number;
-  nonce: number;
-  type: number;
-  result: string;
-  revert_reason: string | null;
+  blockNumber: string;
+  timeStamp: string;
+  from: string;
+  to: string;
+  value: string;         // in wei
+  gas: string;
+  gasPrice: string;
+  gasUsed: string;
+  isError: string;       // '0' = success, '1' = failed
+  txreceipt_status: string;
+  methodId: string;
+  functionName: string;
+  confirmations: string;
+  nonce: string;
+  input: string;
 };
 
-type BlockscoutTxResponse = {
-  items: BlockscoutTransaction[];
-  next_page_params: Record<string, unknown> | null;
-};
+const PAGE_SIZE = 10000; // Etherscan max per call
+const MAX_PAGES = 10;    // 100k transactions cap
 
-// Safety cap: maximum pages to fetch to avoid runaway requests for very active wallets
-const MAX_PAGES = 50;
-
-function isValidEVMAddress(address: string): boolean {
-  return /^0x[0-9a-fA-F]{40}$/.test(address);
+function weiToEther(wei: string): string {
+  const val = BigInt(wei);
+  const eth = val / BigInt(1e15);
+  const frac = eth % 1000n;
+  const whole = eth / 1000n;
+  return frac === 0n ? `${whole}` : `${whole}.${frac.toString().padStart(3, '0').replace(/0+$/, '')}`;
 }
 
-async function fetchPage(
-  baseApiUrl: URL,
-  pageParams: Record<string, unknown> | null
-): Promise<BlockscoutTxResponse> {
-  const url = new URL(baseApiUrl.toString());
-  if (pageParams) {
-    for (const [k, v] of Object.entries(pageParams)) {
-      url.searchParams.set(k, String(v));
-    }
-  }
-  const res = await fetch(url.toString(), { headers: { Accept: 'application/json' } });
-  if (!res.ok) {
-    throw new Error(`Explorer returned ${res.status}`);
-  }
-  return res.json();
-}
-
+// GET /api/wallet/transactions/all?chain_id=1&address=0x...&sort=asc
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const chainId = searchParams.get('chain_id');
   const address = searchParams.get('address');
-  const filter = searchParams.get('filter') ?? 'all';
+  const sort    = searchParams.get('sort') ?? 'asc'; // oldest-first by default
 
-  if (!chainId) {
-    return NextResponse.json({ error: 'Missing required parameter: chain_id' }, { status: 400 });
-  }
-  if (!address) {
-    return NextResponse.json({ error: 'Missing required parameter: address' }, { status: 400 });
-  }
-  if (!isValidEVMAddress(address)) {
-    return NextResponse.json({ error: 'Invalid EVM wallet address format' }, { status: 400 });
-  }
-  if (!['to', 'from', 'all'].includes(filter)) {
-    return NextResponse.json({ error: "filter must be 'to', 'from', or 'all'" }, { status: 400 });
+  if (!chainId) return NextResponse.json({ error: 'Missing: chain_id' }, { status: 400 });
+  if (!address || !isValidEVMAddress(address)) {
+    return NextResponse.json({ error: 'Missing or invalid: address' }, { status: 400 });
   }
 
-  const filePath = path.join(process.cwd(), 'data', 'chains.json');
-  let chainsData: Chains;
-  try {
-    chainsData = JSON.parse(await fs.readFile(filePath, 'utf8'));
-  } catch {
-    return NextResponse.json({ error: 'Failed to load chains data' }, { status: 500 });
+  const apiKey = process.env.ETHERSCAN_API_KEY;
+  if (!apiKey) {
+    return NextResponse.json(
+      { error: 'ETHERSCAN_API_KEY not set. Get a free key at https://etherscan.io/apis' },
+      { status: 500 }
+    );
   }
 
-  const chain = chainsData[chainId];
-  if (!chain) {
-    return NextResponse.json({ error: `Chain with id '${chainId}' not found` }, { status: 404 });
+  const baseUrl = ETHERSCAN_API_URLS[chainId];
+  if (!baseUrl) {
+    return NextResponse.json(
+      { error: `Etherscan not supported for chain_id '${chainId}'` },
+      { status: 404 }
+    );
   }
 
-  const explorer = chain.explorers?.[0];
-  if (!explorer?.url) {
-    return NextResponse.json({ error: `No explorer URL found for chain '${chain.name}'` }, { status: 404 });
-  }
-
-  const baseUrl = explorer.url.replace(/\/$/, '');
-  const baseApiUrl = new URL(`${baseUrl}/api/v2/addresses/${address}/transactions`);
-  if (filter !== 'all') {
-    baseApiUrl.searchParams.set('filter', filter);
-  }
-
-  const allTransactions: BlockscoutTransaction[] = [];
-  let pageParams: Record<string, unknown> | null = null;
-  let pages = 0;
+  const allTxs: EtherscanTx[] = [];
+  let page = 1;
   let truncated = false;
 
   try {
-    do {
-      const page: BlockscoutTxResponse = await fetchPage(baseApiUrl, pageParams);
-      allTransactions.push(...page.items);
-      pageParams = page.next_page_params ?? null;
-      pages++;
+    while (true) {
+      const url = new URL(baseUrl);
+      url.searchParams.set('module', 'account');
+      url.searchParams.set('action', 'txlist');
+      url.searchParams.set('address', address);
+      url.searchParams.set('startblock', '0');
+      url.searchParams.set('endblock', '99999999');
+      url.searchParams.set('page', String(page));
+      url.searchParams.set('offset', String(PAGE_SIZE));
+      url.searchParams.set('sort', 'asc');
+      url.searchParams.set('apikey', apiKey);
 
-      if (pages >= MAX_PAGES && pageParams !== null) {
-        truncated = true;
-        break;
+      const res = await fetch(url.toString());
+      const data: { status: string; message: string; result: EtherscanTx[] | string } =
+        await res.json();
+
+      if (data.status === '0' && data.message !== 'No transactions found') {
+        return NextResponse.json({ error: `Etherscan error: ${data.message}` }, { status: 502 });
       }
-    } while (pageParams !== null);
+
+      const batch = Array.isArray(data.result) ? data.result : [];
+      allTxs.push(...batch);
+
+      if (batch.length < PAGE_SIZE) break; // last page
+      if (page >= MAX_PAGES) { truncated = true; break; }
+      page++;
+    }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: `Failed to fetch transactions: ${msg}` }, { status: 502 });
+    return NextResponse.json({ error: `Etherscan request failed: ${msg}` }, { status: 502 });
   }
 
-  // Sort oldest-first so callers see the full journey from first tx to last
-  allTransactions.sort(
-    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
-  );
+  // Apply requested sort (default: asc = oldest first = fund journey start→end)
+  if (sort === 'desc') allTxs.reverse();
+
+  const walletLower = address.toLowerCase();
+
+  // Enrich each tx with direction + human-readable ETH value
+  const enriched = allTxs.map((tx) => ({
+    ...tx,
+    direction:     tx.from.toLowerCase() === walletLower ? 'outgoing' : 'incoming',
+    value_eth:     weiToEther(tx.value),
+    status:        tx.isError === '0' ? 'success' : 'failed',
+  }));
+
+  const incoming = enriched.filter((t) => t.direction === 'incoming' && t.status === 'success');
+  const outgoing = enriched.filter((t) => t.direction === 'outgoing' && t.status === 'success');
 
   return NextResponse.json({
     chain_id: chainId,
-    chain_name: chain.name,
-    explorer_url: explorer.url,
     address,
-    filter,
-    total_fetched: allTransactions.length,
+    sort,
+    summary: {
+      total: enriched.length,
+      incoming: incoming.length,
+      outgoing: outgoing.length,
+      failed: enriched.filter((t) => t.status === 'failed').length,
+    },
     truncated,
-    truncated_at_page: truncated ? MAX_PAGES : null,
-    transactions: allTransactions,
+    transactions: enriched,
   });
 }

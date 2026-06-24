@@ -1,5 +1,22 @@
 // Shared utilities for wallet API routes
 
+// Etherscan-family API base URLs per chain ID
+// All accept the same ETHERSCAN_API_KEY from etherscan.io (free registration)
+export const ETHERSCAN_API_URLS: Record<string, string> = {
+  '1':        'https://api.etherscan.io/api',
+  '10':       'https://api-optimistic.etherscan.io/api',
+  '56':       'https://api.bscscan.com/api',
+  '137':      'https://api.polygonscan.com/api',
+  '42161':    'https://api.arbiscan.io/api',
+  '43114':    'https://api.snowscan.xyz/api',
+  '8453':     'https://api.basescan.org/api',
+  '324':      'https://block-explorer-api.mainnet.zksync.io/api',
+  '1101':     'https://api-zkevm.polygonscan.com/api',
+  '59144':    'https://api.lineascan.build/api',
+  '534352':   'https://api.scrollscan.com/api',
+  '11155111': 'https://api-sepolia.etherscan.io/api',
+};
+
 // CoinGecko platform IDs for each chain (used to fetch token metadata + price)
 export const COINGECKO_PLATFORMS: Record<string, string> = {
   '1':     'ethereum',

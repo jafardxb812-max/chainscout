@@ -1,136 +1,71 @@
 import { NextRequest, NextResponse } from 'next/server';
-import fs from 'fs/promises';
-import path from 'path';
-import { Chains } from '@/types';
+import { ETHERSCAN_API_URLS, isValidEVMAddress } from '@/utils/wallet';
 
-// Blockscout v2 API response types
-type BlockscoutTransaction = {
-  hash: string;
-  timestamp: string;
-  status: 'ok' | 'error';
-  block: number;
-  value: string;
-  gas_price: string;
-  gas_used: string;
-  fee: { value: string; type: string };
-  from: { hash: string };
-  to: { hash: string } | null;
-  method: string | null;
-  tx_types: string[];
-  confirmation_duration: number[];
-  confirmations: number;
-  nonce: number;
-  type: number;
-  result: string;
-  revert_reason: string | null;
-};
-
-type BlockscoutTxResponse = {
-  items: BlockscoutTransaction[];
-  next_page_params: { block_number: number; index: number; items_count: number } | null;
-};
-
-function isValidEVMAddress(address: string): boolean {
-  return /^0x[0-9a-fA-F]{40}$/.test(address);
-}
-
-function getExplorerBaseUrl(url: string): string {
-  // Strip trailing slash
-  return url.replace(/\/$/, '');
-}
-
+// GET /api/wallet/transactions?chain_id=1&address=0x...&page=1&offset=50&sort=desc
+// sort: 'asc' (oldest first) | 'desc' (newest first, default)
 export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
-  const chainId = searchParams.get('chain_id');
-  const address = searchParams.get('address');
-  const filter = searchParams.get('filter') ?? 'all'; // 'to' | 'from' | 'all'
-  const pageToken = searchParams.get('page_token'); // opaque token from previous response
+  const chainId  = searchParams.get('chain_id');
+  const address  = searchParams.get('address');
+  const page     = searchParams.get('page')   ?? '1';
+  const offset   = searchParams.get('offset') ?? '50';   // records per page
+  const sort     = searchParams.get('sort')   ?? 'desc'; // asc | desc
 
-  if (!chainId) {
-    return NextResponse.json({ error: 'Missing required parameter: chain_id' }, { status: 400 });
-  }
-  if (!address) {
-    return NextResponse.json({ error: 'Missing required parameter: address' }, { status: 400 });
-  }
-  if (!isValidEVMAddress(address)) {
-    return NextResponse.json({ error: 'Invalid EVM wallet address format' }, { status: 400 });
-  }
-  if (!['to', 'from', 'all'].includes(filter)) {
-    return NextResponse.json({ error: "filter must be 'to', 'from', or 'all'" }, { status: 400 });
+  if (!chainId) return NextResponse.json({ error: 'Missing: chain_id' }, { status: 400 });
+  if (!address || !isValidEVMAddress(address)) {
+    return NextResponse.json({ error: 'Missing or invalid: address' }, { status: 400 });
   }
 
-  // Load chain data
-  const filePath = path.join(process.cwd(), 'data', 'chains.json');
-  let chainsData: Chains;
-  try {
-    chainsData = JSON.parse(await fs.readFile(filePath, 'utf8'));
-  } catch {
-    return NextResponse.json({ error: 'Failed to load chains data' }, { status: 500 });
-  }
-
-  const chain = chainsData[chainId];
-  if (!chain) {
-    return NextResponse.json({ error: `Chain with id '${chainId}' not found` }, { status: 404 });
-  }
-
-  const explorer = chain.explorers?.[0];
-  if (!explorer?.url) {
-    return NextResponse.json({ error: `No explorer URL found for chain '${chain.name}'` }, { status: 404 });
-  }
-
-  const baseUrl = getExplorerBaseUrl(explorer.url);
-
-  // Build Blockscout v2 API URL
-  const apiUrl = new URL(`${baseUrl}/api/v2/addresses/${address}/transactions`);
-  if (filter !== 'all') {
-    apiUrl.searchParams.set('filter', filter);
-  }
-
-  // Decode page_token (it's a JSON object passed back from the previous response)
-  if (pageToken) {
-    try {
-      const decoded: Record<string, string> = JSON.parse(Buffer.from(pageToken, 'base64url').toString('utf8'));
-      for (const [k, v] of Object.entries(decoded)) {
-        apiUrl.searchParams.set(k, String(v));
-      }
-    } catch {
-      return NextResponse.json({ error: 'Invalid page_token' }, { status: 400 });
-    }
-  }
-
-  let upstreamRes: Response;
-  try {
-    upstreamRes = await fetch(apiUrl.toString(), {
-      headers: { Accept: 'application/json' },
-      next: { revalidate: 30 },
-    });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    return NextResponse.json({ error: `Failed to reach explorer: ${msg}` }, { status: 502 });
-  }
-
-  if (!upstreamRes.ok) {
+  const apiKey = process.env.ETHERSCAN_API_KEY;
+  if (!apiKey) {
     return NextResponse.json(
-      { error: `Explorer returned ${upstreamRes.status}: ${upstreamRes.statusText}` },
-      { status: upstreamRes.status >= 500 ? 502 : upstreamRes.status }
+      { error: 'ETHERSCAN_API_KEY not set. Get a free key at https://etherscan.io/apis' },
+      { status: 500 }
     );
   }
 
-  const data: BlockscoutTxResponse = await upstreamRes.json();
+  const baseUrl = ETHERSCAN_API_URLS[chainId];
+  if (!baseUrl) {
+    return NextResponse.json(
+      { error: `Etherscan not supported for chain_id '${chainId}'` },
+      { status: 404 }
+    );
+  }
 
-  // Encode next_page_params into an opaque base64url token
-  const nextPageToken = data.next_page_params
-    ? Buffer.from(JSON.stringify(data.next_page_params), 'utf8').toString('base64url')
-    : null;
+  const url = new URL(baseUrl);
+  url.searchParams.set('module', 'account');
+  url.searchParams.set('action', 'txlist');
+  url.searchParams.set('address', address);
+  url.searchParams.set('startblock', '0');
+  url.searchParams.set('endblock', '99999999');
+  url.searchParams.set('page', page);
+  url.searchParams.set('offset', offset);
+  url.searchParams.set('sort', sort);
+  url.searchParams.set('apikey', apiKey);
+
+  let data: { status: string; message: string; result: unknown[] | string };
+  try {
+    const res = await fetch(url.toString(), { next: { revalidate: 30 } });
+    data = await res.json();
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    return NextResponse.json({ error: `Etherscan request failed: ${msg}` }, { status: 502 });
+  }
+
+  if (data.status === '0' && data.message !== 'No transactions found') {
+    return NextResponse.json({ error: `Etherscan error: ${data.message}` }, { status: 502 });
+  }
+
+  const transactions = Array.isArray(data.result) ? data.result : [];
 
   return NextResponse.json({
     chain_id: chainId,
-    chain_name: chain.name,
-    explorer_url: explorer.url,
     address,
-    filter,
-    transactions: data.items,
-    next_page_token: nextPageToken,
-    has_more: nextPageToken !== null,
+    page: parseInt(page),
+    offset: parseInt(offset),
+    sort,
+    count: transactions.length,
+    has_more: transactions.length === parseInt(offset),
+    transactions,
   });
 }
