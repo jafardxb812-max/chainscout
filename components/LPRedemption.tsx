@@ -67,7 +67,11 @@ export default function LPRedemption() {
     setError('');
     setLoading(true);
     try {
-      const provider = new ethers.JsonRpcProvider('https://bsc-dataseed.binance.org/', 56);
+      const provider = new ethers.JsonRpcProvider(
+        'https://bsc-dataseed.binance.org/',
+        { chainId: 56, name: 'bnb' },
+        { staticNetwork: true },
+      );
       let pairAddress = lpToken.trim();
       if (!pairAddress) {
         pairAddress = await getPairAddress(ADDRESSES.USDT, ADDRESSES.WBNB, provider);

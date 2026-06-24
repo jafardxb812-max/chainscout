@@ -56,8 +56,18 @@ export interface LPRedemptionQuote {
   sharePercent: string;      // % of pool being redeemed
 }
 
+const BSC_RPCS = [
+  'https://bsc-dataseed.binance.org/',
+  'https://bsc-dataseed1.defibit.io/',
+  'https://bsc-dataseed1.ninicoin.io/',
+];
+
 export function getBSCProvider(): ethers.JsonRpcProvider {
-  return new ethers.JsonRpcProvider(BSC_RPC, CHAIN_ID);
+  return new ethers.JsonRpcProvider(
+    BSC_RPCS[0],
+    { chainId: CHAIN_ID, name: 'bnb' },
+    { staticNetwork: true },
+  );
 }
 
 /**
