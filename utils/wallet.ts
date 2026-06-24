@@ -1,5 +1,31 @@
 // Shared utilities for wallet API routes
 
+// CoinGecko platform IDs for each chain (used to fetch token metadata + price)
+export const COINGECKO_PLATFORMS: Record<string, string> = {
+  '1':     'ethereum',
+  '10':    'optimistic-ethereum',
+  '56':    'binance-smart-chain',
+  '137':   'polygon-pos',
+  '42161': 'arbitrum-one',
+  '43114': 'avalanche',
+  '8453':  'base',
+  '324':   'zksync',
+  '1101':  'polygon-zkevm',
+};
+
+// CoinGecko coin IDs for native coins
+export const NATIVE_COIN_IDS: Record<string, string> = {
+  '1':     'ethereum',
+  '10':    'ethereum',
+  '56':    'binancecoin',
+  '137':   'matic-network',
+  '42161': 'ethereum',
+  '43114': 'avalanche-2',
+  '8453':  'ethereum',
+  '324':   'ethereum',
+  '1101':  'ethereum',
+};
+
 export const PUBLIC_RPC_URLS: Record<string, string> = {
   '1':     'https://eth.llamarpc.com',
   '10':    'https://mainnet.optimism.io',
