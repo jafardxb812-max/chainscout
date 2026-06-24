@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { ethers } from 'ethers';
 import {
   loadWallets,
   ETHERSCAN_API_URLS,
@@ -95,8 +96,9 @@ async function fetchUsdtTransfers(
   }
 }
 
-// GET /api/wallets/activities?wallet_id=<id>&chain_id=1&sort=desc&limit=100
+// GET /api/wallets/activities?wallet_id=<id>&chain_id=1&sort=desc&limit=100&include_mine=true
 // Omit wallet_id to get activities for ALL tracked wallets.
+// include_mine=true also fetches from the WALLET_PRIVATE_KEY server wallet.
 export async function GET(req: NextRequest) {
   const apiKey = process.env.ETHERSCAN_API_KEY;
   if (!apiKey) {
@@ -109,10 +111,34 @@ export async function GET(req: NextRequest) {
   const { searchParams } = req.nextUrl;
   const filterWalletId = searchParams.get('wallet_id');
   const filterChainId  = searchParams.get('chain_id');
-  const sort           = searchParams.get('sort') ?? 'desc'; // desc = newest first
+  const sort           = searchParams.get('sort') ?? 'desc';
   const limit          = Math.min(parseInt(searchParams.get('limit') ?? '200', 10), 1000);
+  const includeMine    = searchParams.get('include_mine') === 'true';
 
-  const allWallets = await loadWallets();
+  let allWallets = await loadWallets();
+
+  // Optionally inject the server wallet (WALLET_PRIVATE_KEY) without persisting it
+  if (includeMine) {
+    const pk = process.env.WALLET_PRIVATE_KEY;
+    if (pk) {
+      const serverAddress = new ethers.Wallet(pk).address;
+      const alreadyIn = allWallets.some(
+        (w) => w.address.toLowerCase() === serverAddress.toLowerCase()
+      );
+      if (!alreadyIn) {
+        allWallets = [
+          ...allWallets,
+          {
+            id: '__mine__',
+            address: serverAddress,
+            label: 'My Server Wallet',
+            chain_ids: Object.keys(VERIFIED_TOKENS.USDT),
+            added_at: new Date().toISOString(),
+          },
+        ];
+      }
+    }
+  }
   if (allWallets.length === 0) {
     return NextResponse.json({ activities: [], total: 0, wallets_checked: 0 });
   }
