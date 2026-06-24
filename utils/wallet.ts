@@ -43,18 +43,25 @@ export const NATIVE_COIN_IDS: Record<string, string> = {
   '1101':  'ethereum',
 };
 
-export const PUBLIC_RPC_URLS: Record<string, string> = {
-  '1':     'https://eth.llamarpc.com',
-  '10':    'https://mainnet.optimism.io',
-  '56':    'https://bsc-dataseed.binance.org/',
-  '137':   'https://polygon-rpc.com',
-  '42161': 'https://arb1.arbitrum.io/rpc',
-  '43114': 'https://api.avax.network/ext/bc/C/rpc',
-  '8453':  'https://mainnet.base.org',
-  '324':   'https://mainnet.era.zksync.io',
-  '1101':  'https://zkevm-rpc.com',
-  '11155111': 'https://rpc.sepolia.org',   // Sepolia testnet
-  '80002':    'https://rpc-amoy.polygon.technology', // Polygon Amoy testnet
+// Primary RPC per chain — fallbacks tried in order via getRpcUrl()
+export const PUBLIC_RPC_URLS: Record<string, string[]> = {
+  '1':     [
+    'https://rpc.ankr.com/eth',
+    'https://cloudflare-eth.com',
+    'https://ethereum.publicnode.com',
+    'https://1rpc.io/eth',
+    'https://eth.llamarpc.com',
+  ],
+  '10':    ['https://mainnet.optimism.io', 'https://rpc.ankr.com/optimism', 'https://1rpc.io/op'],
+  '56':    ['https://bsc-dataseed.binance.org', 'https://rpc.ankr.com/bsc', 'https://1rpc.io/bnb'],
+  '137':   ['https://polygon-rpc.com', 'https://rpc.ankr.com/polygon', 'https://1rpc.io/matic'],
+  '42161': ['https://arb1.arbitrum.io/rpc', 'https://rpc.ankr.com/arbitrum', 'https://1rpc.io/arb'],
+  '43114': ['https://api.avax.network/ext/bc/C/rpc', 'https://rpc.ankr.com/avalanche', 'https://1rpc.io/avax/c'],
+  '8453':  ['https://mainnet.base.org', 'https://rpc.ankr.com/base', 'https://1rpc.io/base'],
+  '324':   ['https://mainnet.era.zksync.io'],
+  '1101':  ['https://zkevm-rpc.com'],
+  '11155111': ['https://rpc.sepolia.org'],
+  '80002':    ['https://rpc-amoy.polygon.technology'],
 };
 
 // Official verified token contracts — keyed by symbol → chainId → address
@@ -233,8 +240,25 @@ export function isValidEVMAddress(address: string): boolean {
 }
 
 export function getRpcUrl(chainId: string): string | null {
-  // Allow override via environment variable: RPC_URL_<chainId>
-  return process.env[`RPC_URL_${chainId}`] ?? PUBLIC_RPC_URLS[chainId] ?? null;
+  const override = process.env[`RPC_URL_${chainId}`];
+  if (override) return override;
+  const urls = PUBLIC_RPC_URLS[chainId];
+  return urls?.[0] ?? null;
+}
+
+// Try each RPC in order until one succeeds
+export async function getWorkingProvider(chainId: string): Promise<import('ethers').JsonRpcProvider | null> {
+  const { ethers } = await import('ethers');
+  const override = process.env[`RPC_URL_${chainId}`];
+  const urls = override ? [override] : (PUBLIC_RPC_URLS[chainId] ?? []);
+  for (const url of urls) {
+    try {
+      const provider = new ethers.JsonRpcProvider(url);
+      await provider.getBlockNumber(); // quick connectivity check
+      return provider;
+    } catch { continue; }
+  }
+  return null;
 }
 
 export function resolveTokenAddress(token: string, chainId: string): string | null {

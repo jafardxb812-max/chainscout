@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { ethers } from 'ethers';
 import {
   isValidEVMAddress,
-  getRpcUrl,
+  getWorkingProvider,
   resolveTokenAddress,
   ERC20_ABI,
   COINGECKO_PLATFORMS,
@@ -56,12 +56,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Missing or invalid address' }, { status: 400 });
   }
 
-  const rpcUrl = getRpcUrl(chainId);
-  if (!rpcUrl) {
-    return NextResponse.json({ error: `No RPC URL configured for chain_id '${chainId}'` }, { status: 404 });
+  const provider = await getWorkingProvider(chainId);
+  if (!provider) {
+    return NextResponse.json({ error: `No working RPC for chain_id '${chainId}'` }, { status: 502 });
   }
-
-  const provider = new ethers.JsonRpcProvider(rpcUrl);
 
   try {
     if (token.toLowerCase() === 'eth') {

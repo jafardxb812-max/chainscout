@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ethers } from 'ethers';
-import { ETHERSCAN_API_URLS, NATIVE_COIN_IDS, getRpcUrl } from '@/utils/wallet';
+import { ETHERSCAN_API_URLS, NATIVE_COIN_IDS, getWorkingProvider } from '@/utils/wallet';
 
 const COINGECKO = 'https://api.coingecko.com/api/v3';
 
@@ -100,10 +99,10 @@ export async function GET(req: NextRequest) {
     fast     = parseFloat(oracleData.FastGasPrice);
   } else {
     source = 'rpc_estimate';
-    const rpcUrl = getRpcUrl(chainId);
-    if (rpcUrl) {
+    const { ethers } = await import('ethers');
+    const provider = await getWorkingProvider(chainId);
+    if (provider) {
       try {
-        const provider = new ethers.JsonRpcProvider(rpcUrl);
         const feeData  = await provider.getFeeData();
         const baseGwei = feeData.gasPrice
           ? parseFloat(ethers.formatUnits(feeData.gasPrice, 'gwei'))
