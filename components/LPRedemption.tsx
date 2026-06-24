@@ -26,11 +26,23 @@ export default function LPRedemption() {
 
   const connectWallet = useCallback(async () => {
     if (!window.ethereum) {
-      setError('No wallet detected. Please install MetaMask.');
+      setError('Wallet കണ്ടെത്തിയില്ല. MetaMask അല്ലെങ്കിൽ Trust Wallet (WalletConnect) install ചെയ്യുക.');
       return;
     }
-    const accounts = (await window.ethereum.request({ method: 'eth_requestAccounts' })) as string[];
-    if (accounts[0]) setWallet(accounts[0]);
+    try {
+      const accounts = (await window.ethereum.request({ method: 'eth_requestAccounts' })) as string[];
+      if (accounts[0]) {
+        setWallet(accounts[0]);
+        setError('');
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.toLowerCase().includes('user rejected') || msg.includes('4001')) {
+        setError('Connection request reject ചെയ്തു. Wallet-ൽ approve ചെയ്യുക.');
+      } else {
+        setError('Wallet connect ചെയ്യാൻ കഴിഞ്ഞില്ല: ' + msg);
+      }
+    }
   }, []);
 
   const fetchQuote = useCallback(async () => {
@@ -60,10 +72,14 @@ export default function LPRedemption() {
       const browserProvider = new ethers.BrowserProvider(window.ethereum);
       const network = await browserProvider.getNetwork();
       if (network.chainId !== 56n) {
-        await window.ethereum.request({
-          method: 'wallet_switchEthereumChain',
-          params: [{ chainId: '0x38' }],
-        });
+        try {
+          await window.ethereum!.request({
+            method: 'wallet_switchEthereumChain',
+            params: [{ chainId: '0x38' }],
+          });
+        } catch {
+          throw new Error('BNB Smart Chain (BSC) network-ലേക്ക് switch ചെയ്യുക. Wallet-ൽ network change approve ചെയ്യുക.');
+        }
       }
       const signer = await browserProvider.getSigner();
 
