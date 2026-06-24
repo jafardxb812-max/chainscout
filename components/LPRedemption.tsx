@@ -15,6 +15,23 @@ const SLIPPAGE_BPS = 50; // 0.5% default slippage
 
 type Step = 'idle' | 'approving' | 'redeeming' | 'done' | 'error';
 
+function parseError(e: unknown): string {
+  if (e instanceof Error) {
+    // ethers v6 attaches shortMessage for RPC errors
+    const ee = e as Error & { shortMessage?: string; reason?: string; code?: string };
+    if (ee.shortMessage) return ee.shortMessage;
+    if (ee.reason) return ee.reason;
+    return e.message;
+  }
+  if (typeof e === 'object' && e !== null) {
+    const obj = e as Record<string, unknown>;
+    if (typeof obj['message'] === 'string') return obj['message'];
+    if (typeof obj['shortMessage'] === 'string') return obj['shortMessage'] as string;
+    try { return JSON.stringify(e); } catch { return 'Unknown error'; }
+  }
+  return String(e);
+}
+
 export default function LPRedemption() {
   const [wallet, setWallet] = useState('');
   const [lpToken, setLpToken] = useState('');
@@ -36,7 +53,7 @@ export default function LPRedemption() {
         setError('');
       }
     } catch (e: unknown) {
-      const msg = e instanceof Error ? e.message : String(e);
+      const msg = parseError(e);
       if (msg.toLowerCase().includes('user rejected') || msg.includes('4001')) {
         setError('Connection request reject ചെയ്തു. Wallet-ൽ approve ചെയ്യുക.');
       } else {
@@ -46,7 +63,7 @@ export default function LPRedemption() {
   }, []);
 
   const fetchQuote = useCallback(async () => {
-    if (!ethers.isAddress(wallet)) { setError('Enter a valid BSC wallet address'); return; }
+    if (!ethers.isAddress(wallet)) { setError('Valid BSC wallet address enter ചെയ്യുക'); return; }
     setError('');
     setLoading(true);
     try {
@@ -59,7 +76,7 @@ export default function LPRedemption() {
       const q = await getLPRedemptionQuote(wallet, pairAddress, provider);
       setQuote(q);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(parseError(e));
     } finally {
       setLoading(false);
     }
@@ -107,7 +124,7 @@ export default function LPRedemption() {
       setTxHashes(result);
       setStep('done');
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(parseError(e));
       setStep('error');
     }
   }, [quote, wallet]);
@@ -161,7 +178,7 @@ export default function LPRedemption() {
         disabled={loading}
         className="w-full py-2 rounded-lg bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 text-white font-semibold transition"
       >
-        {loading ? 'Fetching quote…' : 'Get Redemption Quote'}
+        {loading ? 'Quote fetch ചെയ്യുന്നു…' : 'Get Redemption Quote'}
       </button>
 
       {/* Quote */}
@@ -193,15 +210,15 @@ export default function LPRedemption() {
               disabled={quote.lpBalanceRaw === '0'}
               className="w-full py-2 rounded-lg bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white font-semibold transition"
             >
-              {quote.lpBalanceRaw === '0' ? 'No LP tokens to redeem' : 'Approve & Redeem LP Tokens'}
+              {quote.lpBalanceRaw === '0' ? 'LP tokens ഇല്ല' : 'Approve & Redeem LP Tokens'}
             </button>
           ) : step === 'approving' ? (
             <div className="text-center text-sm text-yellow-600 font-medium animate-pulse">
-              Step 1/2 — Approving LP tokens…
+              Step 1/2 — LP tokens approve ചെയ്യുന്നു…
             </div>
           ) : step === 'redeeming' ? (
             <div className="text-center text-sm text-blue-600 font-medium animate-pulse">
-              Step 2/2 — Removing liquidity…
+              Step 2/2 — Liquidity remove ചെയ്യുന്നു…
             </div>
           ) : null}
         </div>
