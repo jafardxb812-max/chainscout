@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { ethers } from 'ethers';
 import {
   getLPRedemptionQuote,
@@ -35,6 +35,23 @@ function parseError(e: unknown): string {
 export default function LPRedemption() {
   const [wallet, setWallet] = useState('');
   const [lpToken, setLpToken] = useState('');
+
+  // Suppress unhandled rejections from wallet browser extensions
+  // (e.g. Rabby trying to find MetaMask when it's not installed)
+  useEffect(() => {
+    const handler = (e: PromiseRejectionEvent) => {
+      const msg = e.reason?.message ?? String(e.reason ?? '');
+      if (
+        msg.includes('MetaMask') ||
+        msg.includes('Failed to connect') ||
+        msg.includes('extension not found')
+      ) {
+        e.preventDefault();
+      }
+    };
+    window.addEventListener('unhandledrejection', handler);
+    return () => window.removeEventListener('unhandledrejection', handler);
+  }, []);
   const [quote, setQuote] = useState<LPRedemptionQuote | null>(null);
   const [step, setStep] = useState<Step>('idle');
   const [txHashes, setTxHashes] = useState<{ approveTx: string; redeemTx: string } | null>(null);
@@ -150,17 +167,21 @@ export default function LPRedemption() {
         <div className="flex gap-2">
           <input
             className="flex-1 px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800 text-sm text-gray-900 dark:text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-            placeholder="0x..."
+            placeholder="0x... നിങ്ങളുടെ BSC address paste ചെയ്യുക"
             value={wallet}
             onChange={e => setWallet(e.target.value)}
           />
           <button
             onClick={connectWallet}
+            title="MetaMask browser extension ഉണ്ടെങ്കിൽ auto-fill ആകും"
             className="px-3 py-2 rounded-lg bg-yellow-400 hover:bg-yellow-500 text-black text-sm font-semibold transition"
           >
-            Connect
+            Auto
           </button>
         </div>
+        <p className="text-xs text-gray-400">
+          Trust Wallet ഉപയോഗിക്കുന്നവർ: address manually paste ചെയ്യുക. Quote കാണാൻ wallet connect ആകണമെന്നില്ല.
+        </p>
       </div>
 
       {/* LP Token */}
