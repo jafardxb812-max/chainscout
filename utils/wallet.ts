@@ -100,6 +100,113 @@ export type TokenVerification = {
   warning: string | null;
 };
 
+// CoinGecko coin IDs for well-known tokens (used for about/metadata fetch)
+export const TOKEN_COINGECKO_IDS: Record<string, string> = {
+  USDT: 'tether',
+  USDC: 'usd-coin',
+  WETH: 'weth',
+  ETH:  'ethereum',
+  BNB:  'binancecoin',
+  MATIC: 'matic-network',
+  AVAX: 'avalanche-2',
+};
+
+export type CoinAbout = {
+  id: string;
+  symbol: string;
+  name: string;
+  description: string;
+  logo: { thumb: string; small: string; large: string };
+  links: {
+    website: string | null;
+    whitepaper: string | null;
+    twitter: string | null;
+    telegram: string | null;
+    github: string | null;
+  };
+  genesis_date: string | null;
+  market_data: {
+    price_usd: number;
+    price_change_24h_pct: number;
+    market_cap_usd: number;
+    total_volume_24h_usd: number;
+    total_supply: number | null;
+    circulating_supply: number;
+    max_supply: number | null;
+    ath_usd: number;
+    ath_date: string;
+  };
+};
+
+const COINGECKO_BASE = 'https://api.coingecko.com/api/v3';
+
+export async function fetchCoinAbout(
+  coinIdOrSymbol: string,
+  chainId?: string,
+  contractAddress?: string
+): Promise<CoinAbout | null> {
+  let coinId = TOKEN_COINGECKO_IDS[coinIdOrSymbol.toUpperCase()] ?? coinIdOrSymbol.toLowerCase();
+
+  // If a contract address is given, look up by contract on the chain's platform
+  if (contractAddress && chainId && COINGECKO_PLATFORMS[chainId]) {
+    try {
+      const platform = COINGECKO_PLATFORMS[chainId];
+      const res = await fetch(
+        `${COINGECKO_BASE}/coins/${platform}/contract/${contractAddress.toLowerCase()}`,
+        { headers: { Accept: 'application/json' }, next: { revalidate: 300 } }
+      );
+      if (res.ok) {
+        const d = await res.json();
+        coinId = d.id;
+      }
+    } catch { /* fall through to coinId lookup */ }
+  }
+
+  try {
+    const res = await fetch(
+      `${COINGECKO_BASE}/coins/${coinId}?localization=false&tickers=false&community_data=false&developer_data=false`,
+      { headers: { Accept: 'application/json' }, next: { revalidate: 300 } }
+    );
+    if (!res.ok) return null;
+    const d = await res.json();
+
+    return {
+      id:          d.id,
+      symbol:      d.symbol?.toUpperCase(),
+      name:        d.name,
+      description: d.description?.en?.replace(/<[^>]+>/g, '').slice(0, 500) ?? '', // strip HTML, cap length
+      logo: {
+        thumb: d.image?.thumb ?? null,
+        small: d.image?.small ?? null,
+        large: d.image?.large ?? null,
+      },
+      links: {
+        website:    d.links?.homepage?.[0]                      ?? null,
+        whitepaper: d.links?.whitepaper                         ?? null,
+        twitter:    d.links?.twitter_screen_name
+          ? `https://twitter.com/${d.links.twitter_screen_name}` : null,
+        telegram:   d.links?.telegram_channel_identifier
+          ? `https://t.me/${d.links.telegram_channel_identifier}` : null,
+        github:     d.links?.repos_url?.github?.[0]             ?? null,
+      },
+      genesis_date: d.genesis_date ?? null,
+      market_data: {
+        price_usd:            d.market_data?.current_price?.usd           ?? 0,
+        price_change_24h_pct: d.market_data?.price_change_percentage_24h  ?? 0,
+        market_cap_usd:       d.market_data?.market_cap?.usd              ?? 0,
+        total_volume_24h_usd: d.market_data?.total_volume?.usd            ?? 0,
+        total_supply:         d.market_data?.total_supply                  ?? null,
+        circulating_supply:   d.market_data?.circulating_supply            ?? 0,
+        max_supply:           d.market_data?.max_supply                    ?? null,
+        ath_usd:              d.market_data?.ath?.usd                      ?? 0,
+        ath_date:             d.market_data?.ath_date?.usd                 ?? null,
+      },
+    };
+  } catch {
+    return null;
+  }
+}
+
 // Check whether a contract address is in our verified list
 export function getVerifiedSymbol(address: string, chainId: string): string | null {
   const norm = address.toLowerCase();
