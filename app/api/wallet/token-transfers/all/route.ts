@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ETHERSCAN_API_URLS, isValidEVMAddress, resolveTokenAddress } from '@/utils/wallet';
+import { ETHERSCAN_API_URLS, isValidEVMAddress, resolveTokenAddress, sleep } from '@/utils/wallet';
 
 type EtherscanTokenTransfer = {
   hash: string;
@@ -104,6 +104,7 @@ export async function GET(req: NextRequest) {
       if (batch.length < PAGE_SIZE) break;
       if (page >= MAX_PAGES) { truncated = true; break; }
       page++;
+      await sleep(250); // stay under Etherscan free-tier 5 req/s limit
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

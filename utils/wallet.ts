@@ -95,3 +95,8 @@ export function resolveTokenAddress(token: string, chainId: string): string | nu
   if (isValidEVMAddress(token)) return token;
   return null;
 }
+
+// Etherscan free tier: 5 req/s → wait 250ms between paginated calls to stay safe
+export function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
