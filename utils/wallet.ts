@@ -141,3 +141,55 @@ export function resolveTokenAddress(token: string, chainId: string): string | nu
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+// ── Multi-wallet storage helpers ──────────────────────────────────────────────
+import fs from 'fs/promises';
+import path from 'path';
+import { randomUUID } from 'crypto';
+
+export type StoredWallet = {
+  id: string;
+  address: string;
+  label: string;
+  chain_ids: string[]; // chains to monitor for this wallet
+  added_at: string;
+};
+
+type WalletsFile = { wallets: StoredWallet[] };
+
+const WALLETS_PATH = path.join(process.cwd(), 'data', 'wallets.json');
+
+export async function loadWallets(): Promise<StoredWallet[]> {
+  try {
+    const raw = await fs.readFile(WALLETS_PATH, 'utf8');
+    return (JSON.parse(raw) as WalletsFile).wallets ?? [];
+  } catch {
+    return [];
+  }
+}
+
+async function saveWallets(wallets: StoredWallet[]): Promise<void> {
+  await fs.writeFile(WALLETS_PATH, JSON.stringify({ wallets }, null, 2), 'utf8');
+}
+
+export async function addWallet(
+  address: string,
+  label: string,
+  chain_ids: string[]
+): Promise<StoredWallet> {
+  const wallets = await loadWallets();
+  const existing = wallets.find((w) => w.address.toLowerCase() === address.toLowerCase());
+  if (existing) return existing;
+  const entry: StoredWallet = { id: randomUUID(), address, label, chain_ids, added_at: new Date().toISOString() };
+  wallets.push(entry);
+  await saveWallets(wallets);
+  return entry;
+}
+
+export async function removeWallet(id: string): Promise<boolean> {
+  const wallets = await loadWallets();
+  const next = wallets.filter((w) => w.id !== id);
+  if (next.length === wallets.length) return false;
+  await saveWallets(next);
+  return true;
+}
