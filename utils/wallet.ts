@@ -249,6 +249,98 @@ export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// ── Etherscan API key rotation ────────────────────────────────────────────────
+// Supports up to 3 keys: ETHERSCAN_API_KEY, ETHERSCAN_API_KEY_2, ETHERSCAN_API_KEY_3
+// Rotates round-robin across available keys to spread load
+let _keyIndex = 0;
+function getEtherscanKey(): string {
+  const keys = [
+    process.env.ETHERSCAN_API_KEY,
+    process.env.ETHERSCAN_API_KEY_2,
+    process.env.ETHERSCAN_API_KEY_3,
+  ].filter(Boolean) as string[];
+  if (keys.length === 0) return '';
+  const key = keys[_keyIndex % keys.length];
+  _keyIndex = (_keyIndex + 1) % keys.length;
+  return key;
+}
+
+// ── In-memory response cache ──────────────────────────────────────────────────
+type CacheEntry = { data: unknown; expires: number };
+const _cache = new Map<string, CacheEntry>();
+
+function cacheGet(key: string): unknown | null {
+  const entry = _cache.get(key);
+  if (!entry) return null;
+  if (Date.now() > entry.expires) { _cache.delete(key); return null; }
+  return entry.data;
+}
+
+function cacheSet(key: string, data: unknown, ttlMs: number): void {
+  _cache.set(key, { data, expires: Date.now() + ttlMs });
+  // Evict old entries when cache grows large
+  if (_cache.size > 500) {
+    const now = Date.now();
+    for (const [k, v] of _cache) if (now > v.expires) _cache.delete(k);
+  }
+}
+
+// ── Etherscan fetch with auto-retry + cache ───────────────────────────────────
+// ttlMs: how long to cache a successful response (default 30s)
+// retries: how many times to retry on rate-limit / server error
+export async function fetchEtherscan(
+  baseUrl: string,
+  params: Record<string, string>,
+  options: { ttlMs?: number; retries?: number; apiKey?: string } = {}
+): Promise<unknown> {
+  const { ttlMs = 30_000, retries = 3 } = options;
+  const key = options.apiKey ?? getEtherscanKey();
+
+  const url = new URL(baseUrl);
+  for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
+  url.searchParams.set('apikey', key);
+
+  const cacheKey = url.toString().replace(/apikey=[^&]+/, 'apikey=__');
+  const cached = cacheGet(cacheKey);
+  if (cached !== null) return cached;
+
+  let lastErr: Error | null = null;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    if (attempt > 0) await sleep(500 * 2 ** (attempt - 1)); // 500ms, 1s, 2s backoff
+
+    try {
+      const res = await fetch(url.toString(), { next: { revalidate: 0 } });
+      if (!res.ok) {
+        if (res.status === 429 || res.status === 503) {
+          lastErr = new Error(`HTTP ${res.status}`);
+          continue; // retry
+        }
+        throw new Error(`HTTP ${res.status}`);
+      }
+
+      const data = await res.json();
+
+      // Etherscan rate-limit response: status "0", result contains "rate limit"
+      if (
+        data?.status === '0' &&
+        typeof data?.result === 'string' &&
+        data.result.toLowerCase().includes('rate limit')
+      ) {
+        lastErr = new Error('Rate limit');
+        continue; // retry with next key on next attempt
+      }
+
+      cacheSet(cacheKey, data, ttlMs);
+      return data;
+    } catch (e) {
+      lastErr = e as Error;
+      if (attempt < retries) continue;
+    }
+  }
+
+  throw lastErr ?? new Error('Etherscan fetch failed');
+}
+
 // ── Multi-wallet storage helpers ──────────────────────────────────────────────
 import fs from 'fs/promises';
 import path from 'path';
