@@ -7,6 +7,8 @@ import {
   ERC20_ABI,
   COINGECKO_PLATFORMS,
   NATIVE_COIN_IDS,
+  VERIFIED_TOKENS,
+  getVerifiedSymbol,
 } from '@/utils/wallet';
 
 // CoinGecko free API — no key needed for basic calls (rate limit: 30 req/min)
@@ -143,6 +145,43 @@ export async function GET(req: NextRequest) {
     );
   }
 
+  // ── Verification ──────────────────────────────────────────────────────────
+  let verification: {
+    verified: boolean;
+    address_is_official: boolean;
+    warning: string | null;
+  } = { verified: true, address_is_official: true, warning: null };
+
+  if (!isNative && tokenAddress) {
+    const verifiedSymbol = getVerifiedSymbol(tokenAddress, chainId);
+    const address_is_official = verifiedSymbol !== null;
+
+    // CoinGecko contract match check
+    const cgPlatform = COINGECKO_PLATFORMS[chainId];
+    const cgContract: string | undefined =
+      cgData?.contract_address;
+    const coingecko_match =
+      typeof cgContract === 'string' &&
+      cgContract.toLowerCase() === tokenAddress.toLowerCase();
+
+    let warning: string | null = null;
+    if (onChainSymbol && VERIFIED_TOKENS[onChainSymbol] && !address_is_official) {
+      const officialAddr = VERIFIED_TOKENS[onChainSymbol][chainId];
+      warning = officialAddr
+        ? `⚠️ FAKE TOKEN: Claims to be ${onChainSymbol} but official address is ${officialAddr}`
+        : `⚠️ UNVERIFIED: Claims to be ${onChainSymbol} — no official address known for this chain`;
+    } else if (!address_is_official && !coingecko_match) {
+      warning = '⚠️ Token not in verified list and not confirmed by CoinGecko — use caution';
+    }
+
+    verification = {
+      verified: address_is_official || coingecko_match,
+      address_is_official,
+      warning,
+    };
+    void cgPlatform; // suppress unused warning
+  }
+
   return NextResponse.json({
     chain_id: chainId,
     token: {
@@ -154,6 +193,7 @@ export async function GET(req: NextRequest) {
       coingecko_id: cgData?.id ?? null,
       logo,
     },
+    verification,
     price: {
       usd: price_usd,
       change_24h_pct: price_change_24h_pct,

@@ -57,18 +57,58 @@ export const PUBLIC_RPC_URLS: Record<string, string> = {
   '80002':    'https://rpc-amoy.polygon.technology', // Polygon Amoy testnet
 };
 
-// Well-known USDT contract addresses per chain
-export const USDT_CONTRACTS: Record<string, string> = {
-  '1':     '0xdAC17F958D2ee523a2206206994597C13D831ec7',
-  '10':    '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58',
-  '56':    '0x55d398326f99059fF775485246999027B3197955',
-  '137':   '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
-  '42161': '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
-  '43114': '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
-  '8453':  '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
-  '324':   '0x493257fD37EDB34451f62EDf8D2a0C418852bA4',
-  '1101':  '0x1E4a5963aBFD975d8c9021ce480b42188849D41d',
+// Official verified token contracts — keyed by symbol → chainId → address
+// These are the ONLY addresses treated as "verified" for each token.
+// Source: Tether (USDT), Circle (USDC), official bridge deployments.
+export const VERIFIED_TOKENS: Record<string, Record<string, string>> = {
+  USDT: {
+    '1':     '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+    '10':    '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58',
+    '56':    '0x55d398326f99059fF775485246999027B3197955',
+    '137':   '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
+    '42161': '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
+    '43114': '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
+    '8453':  '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
+    '324':   '0x493257fD37EDB34451f62EDf8D2a0C418852bA4',
+    '1101':  '0x1E4a5963aBFD975d8c9021ce480b42188849D41d',
+  },
+  USDC: {
+    '1':     '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+    '10':    '0x0b2C639c533813f4Aa9D7837CAf62653d097Ff85',
+    '56':    '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
+    '137':   '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+    '42161': '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
+    '43114': '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6',
+    '8453':  '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+  },
+  WETH: {
+    '1':     '0xC02aaA39b223FE8D0A0e5C4F27eAD9083C756Cc2',
+    '10':    '0x4200000000000000000000000000000000000006',
+    '42161': '0x82aF49447D8a07e3bd95BD0d56f35241523fBab1',
+    '8453':  '0x4200000000000000000000000000000000000006',
+  },
 };
+
+// Flat USDT map kept for backward compat
+export const USDT_CONTRACTS: Record<string, string> = VERIFIED_TOKENS.USDT;
+
+export type TokenVerification = {
+  verified: boolean;
+  symbol_match: boolean;     // on-chain symbol matches expected
+  address_is_official: boolean; // address is in our VERIFIED_TOKENS list
+  coingecko_match: boolean;  // CoinGecko contract address matches
+  warning: string | null;
+};
+
+// Check whether a contract address is in our verified list
+export function getVerifiedSymbol(address: string, chainId: string): string | null {
+  const norm = address.toLowerCase();
+  for (const [symbol, chains] of Object.entries(VERIFIED_TOKENS)) {
+    const official = chains[chainId];
+    if (official && official.toLowerCase() === norm) return symbol;
+  }
+  return null;
+}
 
 // Minimal ERC-20 ABI — only what we need
 export const ERC20_ABI = [
@@ -91,7 +131,8 @@ export function getRpcUrl(chainId: string): string | null {
 }
 
 export function resolveTokenAddress(token: string, chainId: string): string | null {
-  if (token.toLowerCase() === 'usdt') return USDT_CONTRACTS[chainId] ?? null;
+  const upper = token.toUpperCase();
+  if (VERIFIED_TOKENS[upper]) return VERIFIED_TOKENS[upper][chainId] ?? null;
   if (isValidEVMAddress(token)) return token;
   return null;
 }
