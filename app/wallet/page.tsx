@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useAppKit } from '@reown/appkit/react';
 import { useAccount, useDisconnect } from 'wagmi';
+import { walletConnectEnabled } from '@/app/web3-providers';
 
 const CHAINS = [
   { id: '1',     name: 'Ethereum Mainnet' },
@@ -43,8 +44,21 @@ const TABS: { id: Tab; label: string; usdt?: boolean }[] = [
   { id: 'txs',     label: 'Transactions' },
 ];
 
-export default function WalletPage() {
+// Isolated component so useAppKit hook is only called when AppKit is initialised
+function ConnectButton() {
   const { open } = useAppKit();
+  return (
+    <button onClick={() => open()}
+      style={{ width: '100%', padding: '10px', borderRadius: 8, border: '1px solid #2563eb', background: '#eff6ff', color: '#2563eb', fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>
+      </svg>
+      Connect Wallet (MetaMask / Trust Wallet / WalletConnect)
+    </button>
+  );
+}
+
+export default function WalletPage() {
   const { address: connectedAddress, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
 
@@ -228,14 +242,12 @@ export default function WalletPage() {
                   Disconnect
                 </button>
               </div>
+            ) : walletConnectEnabled ? (
+              <ConnectButton />
             ) : (
-              <button onClick={() => open()}
-                style={{ width: '100%', padding: '10px', borderRadius: 8, border: '1px solid #2563eb', background: '#eff6ff', color: '#2563eb', fontSize: 14, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/>
-                </svg>
-                Connect Wallet (MetaMask / Trust Wallet / WalletConnect)
-              </button>
+              <div style={{ padding: '10px 14px', borderRadius: 8, background: '#fefce8', border: '1px solid #fde68a', fontSize: 12, color: '#92400e' }}>
+                Wallet connect disabled — add <code>NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID</code> to .env.local to enable MetaMask/Trust Wallet. You can still paste an address manually below.
+              </div>
             )}
           </div>
 
