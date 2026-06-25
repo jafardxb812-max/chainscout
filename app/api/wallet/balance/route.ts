@@ -16,31 +16,38 @@ async function fetchUsdPrice(
   chainId: string,
   tokenAddress?: string
 ): Promise<number | null> {
-  try {
-    if (isNative) {
-      const coinId = NATIVE_COIN_IDS[chainId];
-      if (!coinId) return null;
+  const { sleep } = await import('@/utils/wallet');
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      if (isNative) {
+        const coinId = NATIVE_COIN_IDS[chainId];
+        if (!coinId) return null;
+        const res = await fetch(
+          `${COINGECKO}/simple/price?ids=${coinId}&vs_currencies=usd`,
+          { next: { revalidate: 60 } }
+        );
+        if (res.status === 429) { await sleep(1000 * (attempt + 1)); continue; }
+        if (!res.ok) return null;
+        const data = await res.json();
+        return data[coinId]?.usd ?? null;
+      }
+
+      const platform = COINGECKO_PLATFORMS[chainId];
+      if (!platform || !tokenAddress) return null;
       const res = await fetch(
-        `${COINGECKO}/simple/price?ids=${coinId}&vs_currencies=usd`,
+        `${COINGECKO}/simple/token_price/${platform}?contract_addresses=${tokenAddress.toLowerCase()}&vs_currencies=usd`,
         { next: { revalidate: 60 } }
       );
+      if (res.status === 429) { await sleep(1000 * (attempt + 1)); continue; }
       if (!res.ok) return null;
       const data = await res.json();
-      return data[coinId]?.usd ?? null;
+      return data[tokenAddress.toLowerCase()]?.usd ?? null;
+    } catch {
+      if (attempt < 2) { await sleep(500); continue; }
+      return null;
     }
-
-    const platform = COINGECKO_PLATFORMS[chainId];
-    if (!platform || !tokenAddress) return null;
-    const res = await fetch(
-      `${COINGECKO}/simple/token_price/${platform}?contract_addresses=${tokenAddress.toLowerCase()}&vs_currencies=usd`,
-      { next: { revalidate: 60 } }
-    );
-    if (!res.ok) return null;
-    const data = await res.json();
-    return data[tokenAddress.toLowerCase()]?.usd ?? null;
-  } catch {
-    return null;
   }
+  return null;
 }
 
 export async function GET(req: NextRequest) {
