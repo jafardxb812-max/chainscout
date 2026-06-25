@@ -10,6 +10,20 @@ services:
       - PORT=3000
     expose:
       - "3000"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.80'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/chains/list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
     networks:
       - chainscout-net
 
@@ -22,11 +36,13 @@ services:
       - "443:443"
     volumes:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
-      - ./nginx/ssl:/etc/nginx/ssl:ro
       - certbot-www:/var/www/certbot:ro
       - certbot-certs:/etc/letsencrypt:ro
     depends_on:
-      - app
+      app:
+        condition: service_healthy
+    sysctls:
+      - net.core.somaxconn=65535
     networks:
       - chainscout-net
 
@@ -36,11 +52,13 @@ services:
     volumes:
       - certbot-www:/var/www/certbot
       - certbot-certs:/etc/letsencrypt
-    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew --quiet; sleep 12h & wait $${!}; done;'"
 
 networks:
   chainscout-net:
     driver: bridge
+    driver_opts:
+      com.docker.network.bridge.name: chainscout0
 
 volumes:
   certbot-www:
