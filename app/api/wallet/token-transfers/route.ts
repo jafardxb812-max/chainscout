@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ETHERSCAN_API_URLS, isValidEVMAddress, resolveTokenAddress } from '@/utils/wallet';
+import { ETHERSCAN_API_URLS, isValidEVMAddress, resolveTokenAddress, fetchEtherscan } from '@/utils/wallet';
 
 // GET /api/wallet/token-transfers?chain_id=1&address=0x...&token=usdt&page=1&offset=50
 export async function GET(req: NextRequest) {
@@ -14,14 +14,6 @@ export async function GET(req: NextRequest) {
   if (!chainId) return NextResponse.json({ error: 'Missing: chain_id' }, { status: 400 });
   if (!address || !isValidEVMAddress(address)) {
     return NextResponse.json({ error: 'Missing or invalid: address' }, { status: 400 });
-  }
-
-  const apiKey = process.env.ETHERSCAN_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json(
-      { error: 'ETHERSCAN_API_KEY not set. Get a free key at https://etherscan.io/apis' },
-      { status: 500 }
-    );
   }
 
   const baseUrl = ETHERSCAN_API_URLS[chainId];
@@ -44,22 +36,16 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const url = new URL(baseUrl);
-  url.searchParams.set('module', 'account');
-  url.searchParams.set('action', 'tokentx');
-  url.searchParams.set('address', address);
-  if (tokenAddress) url.searchParams.set('contractaddress', tokenAddress);
-  url.searchParams.set('startblock', '0');
-  url.searchParams.set('endblock', '99999999');
-  url.searchParams.set('page', page);
-  url.searchParams.set('offset', offset);
-  url.searchParams.set('sort', sort);
-  url.searchParams.set('apikey', apiKey);
+  const params: Record<string, string> = {
+    module: 'account', action: 'tokentx',
+    address, startblock: '0', endblock: '99999999',
+    page, offset, sort,
+  };
+  if (tokenAddress) params.contractaddress = tokenAddress;
 
   let data: { status: string; message: string; result: unknown[] | string };
   try {
-    const res = await fetch(url.toString(), { next: { revalidate: 30 } });
-    data = await res.json();
+    data = await fetchEtherscan(baseUrl, params, { ttlMs: 30_000 }) as typeof data;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: `Etherscan request failed: ${msg}` }, { status: 502 });
