@@ -2,11 +2,14 @@
 
 import { useState, useEffect } from 'react';
 import { useAppKit } from '@reown/appkit/react';
-import { useAccount, useDisconnect, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
-import { parseUnits } from 'viem';
+import {
+  useAccount, useDisconnect, useWriteContract,
+  useBalance, useReadContract, useChainId, useSwitchChain,
+} from 'wagmi';
+import { parseUnits, formatUnits, formatEther } from 'viem';
 import { walletConnectEnabled } from '@/app/web3-providers';
 
-// USDT contract addresses per chain (client-side, for direct MetaMask signing)
+// USDT contract addresses per chain
 const USDT_ADDRESSES: Record<string, `0x${string}`> = {
   '1':     '0xdAC17F958D2ee523a2206206994597C13D831ec7',
   '137':   '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
@@ -15,6 +18,17 @@ const USDT_ADDRESSES: Record<string, `0x${string}`> = {
   '10':    '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58',
   '8453':  '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
   '43114': '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
+};
+
+// USDC contract addresses per chain
+const USDC_ADDRESSES: Record<string, `0x${string}`> = {
+  '1':     '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+  '137':   '0x2791Bca1f2de4661ED88A30C99A7a9449Aa84174',
+  '56':    '0x8AC76a51cc950d9822D68b83fE1Ad97B32Cd580d',
+  '42161': '0xFF970A61A04b1cA14834A43f5dE4533eBDDB5CC8',
+  '10':    '0x7F5c764cBc14f9669B88837ca1490cCa17c31607',
+  '8453':  '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
+  '43114': '0xB97EF9Ef8734C71904D8002F8b6Bc66Dd9c48a6',
 };
 
 const ERC20_TRANSFER_ABI = [{
@@ -26,6 +40,14 @@ const ERC20_TRANSFER_ABI = [{
     { name: 'value', type: 'uint256' },
   ],
   outputs: [{ type: 'bool' }],
+}];
+
+const ERC20_BALANCE_ABI = [{
+  name: 'balanceOf',
+  type: 'function' as const,
+  stateMutability: 'view' as const,
+  inputs: [{ name: 'account', type: 'address' }],
+  outputs: [{ name: '', type: 'uint256' }],
 }];
 
 const CHAINS = [
@@ -84,10 +106,89 @@ function ConnectButton() {
   );
 }
 
+// Reads balances directly from MetaMask — no server RPC needed
+function BalancePanel({ address, chainId, token }: { address: string; chainId: string; token: string }) {
+  const walletAddr = address ? (address as `0x${string}`) : undefined;
+
+  const { data: ethBal, isLoading: ethLoading } = useBalance({
+    address: walletAddr,
+  });
+
+  const usdtAddr = USDT_ADDRESSES[chainId];
+  const usdcAddr = USDC_ADDRESSES[chainId];
+  const tokenAddr = token === 'USDT' ? usdtAddr : token === 'USDC' ? usdcAddr : undefined;
+
+  const { data: tokenBal, isLoading: tokenLoading } = useReadContract({
+    address: tokenAddr,
+    abi: ERC20_BALANCE_ABI,
+    functionName: 'balanceOf',
+    args: walletAddr ? [walletAddr] : undefined,
+    query: { enabled: !!tokenAddr && !!walletAddr },
+  });
+
+  const card: React.CSSProperties = {
+    background: '#fff', borderRadius: 12, border: '1px solid #e2e8f0', padding: 20, marginBottom: 16,
+  };
+
+  if (!walletAddr) {
+    return (
+      <div style={{ ...card, textAlign: 'center', color: '#94a3b8', fontSize: 14, padding: '32px 20px' }}>
+        Connect your wallet above to see balance
+      </div>
+    );
+  }
+
+  if (token === 'ETH' || token === 'WETH') {
+    const val = ethBal ? parseFloat(formatEther(ethBal.value)).toFixed(6) : '–';
+    const sym = ethBal?.symbol ?? 'ETH';
+    return (
+      <div style={card}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>
+          {sym} Balance · {CHAINS.find(c => c.id === chainId)?.name ?? `Chain ${chainId}`}
+        </div>
+        <div style={{ fontSize: 30, fontWeight: 700, color: '#1e293b' }}>
+          {ethLoading ? 'Loading…' : val}{' '}
+          <span style={{ fontSize: 16, color: '#94a3b8' }}>{sym}</span>
+        </div>
+        <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
+          Live · reads from connected wallet
+        </div>
+      </div>
+    );
+  }
+
+  const decimals = 6;
+  const formatted = tokenBal !== undefined ? parseFloat(formatUnits(tokenBal as bigint, decimals)).toFixed(2) : '–';
+  const contractAddr = token === 'USDT' ? usdtAddr : usdcAddr;
+
+  return (
+    <div style={card}>
+      <div style={{ fontSize: 11, fontWeight: 600, color: '#0d9488', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>
+        {token} Balance · {CHAINS.find(c => c.id === chainId)?.name ?? `Chain ${chainId}`}
+      </div>
+      {!contractAddr ? (
+        <div style={{ color: '#94a3b8', fontSize: 14 }}>{token} not available on this chain</div>
+      ) : (
+        <>
+          <div style={{ fontSize: 30, fontWeight: 700, color: '#1e293b' }}>
+            {tokenLoading ? 'Loading…' : formatted}{' '}
+            <span style={{ fontSize: 16, color: '#94a3b8' }}>{token}</span>
+          </div>
+          <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
+            Live · reads from connected wallet
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function WalletPage() {
   const { address: connectedAddress, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
   const { writeContractAsync } = useWriteContract();
+  const connectedChainId = useChainId();
+  const { switchChain } = useSwitchChain();
 
   const [address,  setAddress]  = useState('');
   const [chainId,  setChainId]  = useState('1');
@@ -96,11 +197,10 @@ export default function WalletPage() {
   const [error,    setError]    = useState('');
 
   // balance tab
-  const [token,   setToken]   = useState('USDT');
-  const [balance, setBalance] = useState<AnyObj | null>(null);
+  const [token, setToken] = useState('USDT');
 
   // usdt history tab
-  const [usdtTxs,    setUsdtTxs]    = useState<AnyObj[]>([]);
+  const [usdtTxs, setUsdtTxs] = useState<AnyObj[]>([]);
 
   // send tab
   const [sendTo,     setSendTo]     = useState('');
@@ -115,11 +215,11 @@ export default function WalletPage() {
   const [bridgeStatus, setBridgeStatus] = useState<AnyObj | null>(null);
 
   // swap tab
-  const [swapFrom,    setSwapFrom]    = useState('ETH');
-  const [swapTo,      setSwapTo]      = useState('USDT');
-  const [swapAmount,  setSwapAmount]  = useState('');
-  const [swapQuote,   setSwapQuote]   = useState<AnyObj | null>(null);
-  const [swapResult,  setSwapResult]  = useState<AnyObj | null>(null);
+  const [swapFrom,   setSwapFrom]   = useState('ETH');
+  const [swapTo,     setSwapTo]     = useState('USDT');
+  const [swapAmount, setSwapAmount] = useState('');
+  const [swapQuote,  setSwapQuote]  = useState<AnyObj | null>(null);
+  const [swapResult, setSwapResult] = useState<AnyObj | null>(null);
 
   // gas tab
   const [gas, setGas] = useState<AnyObj | null>(null);
@@ -130,6 +230,13 @@ export default function WalletPage() {
   useEffect(() => {
     if (connectedAddress) setAddress(connectedAddress);
   }, [connectedAddress]);
+
+  // Auto-switch MetaMask chain when user picks a different chain for send
+  useEffect(() => {
+    if (tab === 'send' && isConnected && connectedChainId !== parseInt(chainId, 10)) {
+      switchChain?.({ chainId: parseInt(chainId, 10) });
+    }
+  }, [chainId, tab, isConnected, connectedChainId, switchChain]);
 
   async function call(url: string, opts?: RequestInit) {
     setLoading(true);
@@ -150,13 +257,6 @@ export default function WalletPage() {
 
   // ── Fetch handlers ──────────────────────────────────────────────────────────
 
-  async function fetchBalance() {
-    const data = await call(
-      `/api/wallet/balance?chain_id=${chainId}&address=${address}&token=${token.toLowerCase()}`
-    );
-    if (data) setBalance(data);
-  }
-
   async function fetchUsdtHistory() {
     const data = await call(
       `/api/wallet/token-transfers?chain_id=${chainId}&address=${address}&token=usdt&offset=30`
@@ -168,6 +268,7 @@ export default function WalletPage() {
     const usdtAddr = USDT_ADDRESSES[chainId];
     if (!usdtAddr) { setError(`USDT not supported on chain ${chainId}`); return; }
     if (!sendTo.startsWith('0x') || sendTo.length !== 42) { setError('Invalid recipient address'); return; }
+    if (!sendAmount || parseFloat(sendAmount) <= 0) { setError('Enter a valid amount'); return; }
     setLoading(true);
     setError('');
     try {
@@ -244,15 +345,14 @@ export default function WalletPage() {
   }
 
   function go() {
-    if (tab === 'balance')  fetchBalance();
-    else if (tab === 'usdt') fetchUsdtHistory();
+    if (tab === 'usdt') fetchUsdtHistory();
     else if (tab === 'gas')  fetchGas();
     else if (tab === 'txs')  fetchTxs();
   }
 
-  const needsAddr = tab !== 'gas' && tab !== 'send' && tab !== 'bridge' && tab !== 'swap';
+  const needsAddr = tab !== 'gas' && tab !== 'send' && tab !== 'bridge' && tab !== 'swap' && tab !== 'balance';
   const canFetch  = !needsAddr || address.startsWith('0x');
-  const showFetch = tab !== 'send' && tab !== 'bridge' && tab !== 'swap';
+  const showFetch = tab !== 'send' && tab !== 'bridge' && tab !== 'swap' && tab !== 'balance';
 
   // ── styles ──────────────────────────────────────────────────────────────────
   const card: React.CSSProperties = {
@@ -321,7 +421,7 @@ export default function WalletPage() {
             )}
           </div>
 
-          {/* Address input */}
+          {/* Address input (for history/txs tabs) */}
           {needsAddr && (
             <div style={{ marginBottom: 16 }}>
               <label style={label}>Wallet Address {isConnected ? '(connected)' : '(or paste)'}</label>
@@ -352,6 +452,11 @@ export default function WalletPage() {
           {/* Send USDT form */}
           {tab === 'send' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              {!isConnected && (
+                <div style={{ padding: '10px 14px', borderRadius: 8, background: '#fefce8', border: '1px solid #fde68a', fontSize: 12, color: '#92400e' }}>
+                  Connect your wallet above to send USDT
+                </div>
+              )}
               <div>
                 <label style={label}>Recipient Address</label>
                 <input value={sendTo} onChange={e => setSendTo(e.target.value)}
@@ -362,9 +467,9 @@ export default function WalletPage() {
                 <input type="number" value={sendAmount} onChange={e => setSendAmount(e.target.value)}
                   placeholder="e.g. 10" style={input} />
               </div>
-              <button onClick={doSend} disabled={loading || !sendTo || !sendAmount}
-                style={btn(!loading && !!sendTo && !!sendAmount, '#0d9488')}>
-                {loading ? 'Sending…' : 'Send USDT'}
+              <button onClick={doSend} disabled={loading || !isConnected || !sendTo || !sendAmount}
+                style={btn(!loading && isConnected && !!sendTo && !!sendAmount, '#0d9488')}>
+                {loading ? 'Sending…' : 'Send USDT via MetaMask'}
               </button>
             </div>
           )}
@@ -455,25 +560,9 @@ export default function WalletPage() {
           </div>
         )}
 
-        {/* ── Balance result ─────────────────────────────────────────────────── */}
-        {tab === 'balance' && balance && (
-          <div style={card}>
-            <div style={{ ...label, marginBottom: 12 }}>{String(balance.token?.name ?? token)} Balance</div>
-            <div style={{ fontSize: 30, fontWeight: 700, color: '#1e293b' }}>
-              {parseFloat(String(balance.balance ?? '0')).toFixed(6)}{' '}
-              <span style={{ fontSize: 16, color: '#94a3b8' }}>{String(balance.token?.symbol ?? token)}</span>
-            </div>
-            {balance.balance_usd && (
-              <div style={{ fontSize: 20, color: '#16a34a', fontWeight: 600, marginTop: 4 }}>
-                ≈ ${parseFloat(String(balance.balance_usd)).toLocaleString()} USD
-              </div>
-            )}
-            {balance.price_usd && (
-              <div style={{ fontSize: 12, color: '#94a3b8', marginTop: 8 }}>
-                1 {String(balance.token?.symbol ?? token)} = ${Number(balance.price_usd).toLocaleString()} USD
-              </div>
-            )}
-          </div>
+        {/* ── Balance (wagmi hooks, no server RPC) ───────────────────────────── */}
+        {tab === 'balance' && (
+          <BalancePanel address={address} chainId={chainId} token={token} />
         )}
 
         {/* ── USDT Transfer History ──────────────────────────────────────────── */}
@@ -525,7 +614,7 @@ export default function WalletPage() {
               Tx Hash: <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{String(sendResult.tx_hash ?? '')}</span>
             </div>
             <div style={{ fontSize: 12, color: '#6b7280' }}>
-              Block #{String(sendResult.block_number ?? '')} · Status: {String(sendResult.status ?? '')}
+              From: {shortAddr(String(sendResult.from ?? ''))} · To: {shortAddr(String(sendResult.to ?? ''))} · Amount: {String(sendResult.amount ?? '')} USDT
             </div>
             {sendResult.tx_hash && (
               <a href={`https://etherscan.io/tx/${sendResult.tx_hash}`} target="_blank" rel="noreferrer"
