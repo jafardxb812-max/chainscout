@@ -93,16 +93,17 @@ export async function GET(req: NextRequest) {
     }
 
     const contract = new ethers.Contract(tokenAddress, ERC20_ABI, provider);
-    const [[rawBalance, decimals, symbol, name], usdPrice] = await Promise.all([
+    const [[rawBalance, rawDecimals, symbol, name], usdPrice] = await Promise.all([
       Promise.all([
         contract.balanceOf(address) as Promise<bigint>,
-        contract.decimals() as Promise<number>,
+        contract.decimals() as Promise<bigint | number>,
         contract.symbol() as Promise<string>,
         contract.name() as Promise<string>,
       ]),
       fetchUsdPrice(false, chainId, tokenAddress),
     ]);
 
+    const decimals = Number(rawDecimals);
     const balance = ethers.formatUnits(rawBalance, decimals);
     const balance_usd = usdPrice ? (parseFloat(balance) * usdPrice).toFixed(2) : null;
 
