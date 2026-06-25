@@ -10,7 +10,7 @@ import { ReactNode, useState } from 'react';
 
 const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? 'no-project-id';
 
-const networks = [mainnet, polygon, bsc, arbitrum, optimism, base, avalanche] as const;
+const networks = [mainnet, polygon, bsc, arbitrum, optimism, base, avalanche];
 const wagmiAdapter = new WagmiAdapter({ networks, projectId });
 
 // Only initialise AppKit (WalletConnect modal) when a real project ID is set
@@ -18,7 +18,7 @@ if (process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID) {
   const { createAppKit } = require('@reown/appkit/react') as typeof import('@reown/appkit/react');
   createAppKit({
     adapters: [wagmiAdapter],
-    networks,
+    networks: networks as unknown as Parameters<typeof createAppKit>[0]['networks'],
     projectId,
     metadata: {
       name: 'Chainscout Wallet',

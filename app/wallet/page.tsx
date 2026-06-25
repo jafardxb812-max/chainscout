@@ -15,7 +15,7 @@ const CHAINS = [
   { id: '43114', name: 'Avalanche' },
 ];
 
-type Tab = 'balance' | 'usdt' | 'send' | 'bridge' | 'gas' | 'txs';
+type Tab = 'balance' | 'usdt' | 'send' | 'bridge' | 'swap' | 'gas' | 'txs';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyObj = Record<string, any>;
@@ -35,11 +35,14 @@ function apiErr(data: AnyObj): string | null {
   return null;
 }
 
-const TABS: { id: Tab; label: string; usdt?: boolean }[] = [
+const TOKENS = ['ETH', 'USDT', 'USDC', 'WETH'];
+
+const TABS: { id: Tab; label: string; usdt?: boolean; swap?: boolean }[] = [
   { id: 'balance', label: 'Balance' },
   { id: 'usdt',    label: 'USDT History', usdt: true },
   { id: 'send',    label: 'Send USDT',    usdt: true },
   { id: 'bridge',  label: 'Bridge →TRC20', usdt: true },
+  { id: 'swap',    label: 'Swap',          swap: true },
   { id: 'gas',     label: 'Gas Prices' },
   { id: 'txs',     label: 'Transactions' },
 ];
@@ -81,10 +84,18 @@ export default function WalletPage() {
   const [sendResult, setSendResult] = useState<AnyObj | null>(null);
 
   // bridge tab
-  const [bridgeTo,    setBridgeTo]    = useState('');   // TRON T... address
-  const [bridgeAmt,   setBridgeAmt]   = useState('');
-  const [bridgeQuote, setBridgeQuote] = useState<AnyObj | null>(null);
-  const [bridgeResult,setBridgeResult]= useState<AnyObj | null>(null);
+  const [bridgeTo,     setBridgeTo]     = useState('');
+  const [bridgeAmt,    setBridgeAmt]    = useState('');
+  const [bridgeQuote,  setBridgeQuote]  = useState<AnyObj | null>(null);
+  const [bridgeResult, setBridgeResult] = useState<AnyObj | null>(null);
+  const [bridgeStatus, setBridgeStatus] = useState<AnyObj | null>(null);
+
+  // swap tab
+  const [swapFrom,    setSwapFrom]    = useState('ETH');
+  const [swapTo,      setSwapTo]      = useState('USDT');
+  const [swapAmount,  setSwapAmount]  = useState('');
+  const [swapQuote,   setSwapQuote]   = useState<AnyObj | null>(null);
+  const [swapResult,  setSwapResult]  = useState<AnyObj | null>(null);
 
   // gas tab
   const [gas, setGas] = useState<AnyObj | null>(null);
@@ -161,6 +172,28 @@ export default function WalletPage() {
     if (data) setBridgeResult(data);
   }
 
+  async function fetchBridgeStatus(orderId: string) {
+    const data = await call(`/api/wallet/bridge/status/${orderId}`);
+    if (data) setBridgeStatus(data);
+  }
+
+  async function fetchSwapQuote() {
+    setSwapQuote(null);
+    const data = await call(
+      `/api/wallet/swap?chain_id=${chainId}&from=${swapFrom.toLowerCase()}&to=${swapTo.toLowerCase()}&amount=${swapAmount}`
+    );
+    if (data) setSwapQuote(data);
+  }
+
+  async function doSwap() {
+    const data = await call('/api/wallet/swap', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chain_id: chainId, from: swapFrom.toLowerCase(), to: swapTo.toLowerCase(), amount: swapAmount, slippage: 1 }),
+    });
+    if (data) setSwapResult(data);
+  }
+
   async function fetchGas() {
     const data = await call(`/api/wallet/gas?chain_id=${chainId}`);
     if (data) setGas(data);
@@ -180,9 +213,9 @@ export default function WalletPage() {
     else if (tab === 'txs')  fetchTxs();
   }
 
-  const needsAddr = tab !== 'gas' && tab !== 'send' && tab !== 'bridge';
+  const needsAddr = tab !== 'gas' && tab !== 'send' && tab !== 'bridge' && tab !== 'swap';
   const canFetch  = !needsAddr || address.startsWith('0x');
-  const showFetch = tab !== 'send' && tab !== 'bridge';
+  const showFetch = tab !== 'send' && tab !== 'bridge' && tab !== 'swap';
 
   // ── styles ──────────────────────────────────────────────────────────────────
   const card: React.CSSProperties = {
@@ -265,7 +298,7 @@ export default function WalletPage() {
             {TABS.map(t => (
               <button key={t.id} onClick={() => setTab(t.id)} style={{
                 padding: '6px 14px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 500,
-                background: tab === t.id ? (t.usdt ? '#0d9488' : '#2563eb') : '#f1f5f9',
+                background: tab === t.id ? (t.usdt ? '#0d9488' : t.swap ? '#7c3aed' : '#2563eb') : '#f1f5f9',
                 color: tab === t.id ? '#fff' : '#475569',
               }}>
                 {t.label}
@@ -323,6 +356,47 @@ export default function WalletPage() {
                 <button onClick={doBridge} disabled={loading || !bridgeTo || !bridgeAmt || !bridgeQuote}
                   style={{ ...btn(!loading && !!bridgeTo && !!bridgeAmt && !!bridgeQuote, '#0d9488'), flex: 2 }}>
                   {loading ? 'Bridging…' : 'Bridge Now'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Swap form */}
+          {tab === 'swap' && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+              <div style={{ padding: '10px 14px', borderRadius: 8, background: '#faf5ff', border: '1px solid #e9d5ff', fontSize: 12, color: '#6b21a8' }}>
+                Swap tokens via 1inch — requires ONEINCH_API_KEY + WALLET_PRIVATE_KEY in .env.local
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 40px 1fr', gap: 8, alignItems: 'end' }}>
+                <div>
+                  <label style={label}>From</label>
+                  <select value={swapFrom} onChange={e => { setSwapFrom(e.target.value); setSwapQuote(null); }}
+                    style={{ ...input, fontSize: 14 }}>
+                    {TOKENS.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </div>
+                <div style={{ textAlign: 'center', paddingBottom: 8, fontSize: 18, color: '#7c3aed', fontWeight: 700 }}>⇄</div>
+                <div>
+                  <label style={label}>To</label>
+                  <select value={swapTo} onChange={e => { setSwapTo(e.target.value); setSwapQuote(null); }}
+                    style={{ ...input, fontSize: 14 }}>
+                    {TOKENS.filter(t => t !== swapFrom).map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label style={label}>Amount ({swapFrom})</label>
+                <input type="number" value={swapAmount} onChange={e => { setSwapAmount(e.target.value); setSwapQuote(null); }}
+                  placeholder="e.g. 0.1" style={input} />
+              </div>
+              <div style={{ display: 'flex', gap: 8 }}>
+                <button onClick={fetchSwapQuote} disabled={loading || !swapAmount}
+                  style={{ ...btn(!loading && !!swapAmount, '#64748b'), flex: 1 }}>
+                  {loading ? '…' : 'Get Quote'}
+                </button>
+                <button onClick={doSwap} disabled={loading || !swapAmount || !swapQuote}
+                  style={{ ...btn(!loading && !!swapAmount && !!swapQuote, '#7c3aed'), flex: 2 }}>
+                  {loading ? 'Swapping…' : 'Execute Swap'}
                 </button>
               </div>
             </div>
@@ -457,15 +531,79 @@ export default function WalletPage() {
             <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>
               Send Tx: <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{String(bridgeResult.send_tx?.tx_hash ?? '')}</span>
             </div>
-            {bridgeResult.bridge_order?.id && (
-              <a href={`https://changenow.io/exchange/txs/${bridgeResult.bridge_order.id}`} target="_blank" rel="noreferrer"
-                style={{ display: 'inline-block', marginTop: 8, fontSize: 12, color: '#0d9488', fontWeight: 600 }}>
-                Track on ChangeNow ↗
-              </a>
+            <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
+              {bridgeResult.bridge_order?.id && (
+                <button onClick={() => fetchBridgeStatus(String(bridgeResult.bridge_order.id))} disabled={loading}
+                  style={{ padding: '6px 14px', borderRadius: 8, border: 'none', background: '#0d9488', color: '#fff', fontSize: 12, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer' }}>
+                  {loading ? 'Checking…' : '↻ Check Status'}
+                </button>
+              )}
+              {bridgeResult.bridge_order?.id && (
+                <a href={`https://changenow.io/exchange/txs/${bridgeResult.bridge_order.id}`} target="_blank" rel="noreferrer"
+                  style={{ padding: '6px 14px', borderRadius: 8, border: '1px solid #0d9488', background: '#fff', color: '#0d9488', fontSize: 12, fontWeight: 600, textDecoration: 'none' }}>
+                  Track on ChangeNow ↗
+                </a>
+              )}
+            </div>
+            {bridgeStatus && (
+              <div style={{ marginTop: 12, padding: '10px 14px', borderRadius: 8, background: bridgeStatus.is_complete ? '#f0fdf4' : bridgeStatus.is_failed ? '#fef2f2' : '#fefce8', border: `1px solid ${bridgeStatus.is_complete ? '#bbf7d0' : bridgeStatus.is_failed ? '#fecaca' : '#fde68a'}` }}>
+                <div style={{ fontSize: 12, fontWeight: 700, color: bridgeStatus.is_complete ? '#16a34a' : bridgeStatus.is_failed ? '#dc2626' : '#92400e', marginBottom: 4 }}>
+                  Status: {String(bridgeStatus.status_description ?? bridgeStatus.status ?? '')}
+                </div>
+                {bridgeStatus.exchange?.to?.tx_hash && (
+                  <div style={{ fontSize: 11, color: '#6b7280' }}>
+                    TRC20 Tx: <span style={{ fontFamily: 'monospace' }}>{shortAddr(String(bridgeStatus.exchange.to.tx_hash))}</span>
+                  </div>
+                )}
+              </div>
             )}
             <div style={{ fontSize: 11, color: '#6b7280', marginTop: 8 }}>
               TRC20 USDT will arrive in 5–30 minutes
             </div>
+          </div>
+        )}
+
+        {/* ── Swap quote ────────────────────────────────────────────────────── */}
+        {tab === 'swap' && swapQuote && !swapResult && (
+          <div style={{ ...card, marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: '#7c3aed', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>
+              Swap Quote · 1inch
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+              {[
+                ['You Pay',      `${swapQuote.from?.amount ?? swapAmount} ${swapQuote.from?.token ?? swapFrom}`],
+                ['You Receive',  `≈ ${parseFloat(String(swapQuote.to?.amount ?? '0')).toFixed(6)} ${swapQuote.to?.token ?? swapTo}`],
+                ['Est. Gas',     swapQuote.estimated_gas ? `${swapQuote.estimated_gas.toLocaleString()} gas` : '–'],
+                ['Slippage',     '1%'],
+              ].map(([k, v]) => (
+                <div key={k} style={{ padding: '10px 14px', borderRadius: 8, background: '#f5f3ff' }}>
+                  <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 2 }}>{k}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: '#1e293b' }}>{v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+        {tab === 'swap' && swapResult && (
+          <div style={{ ...card, borderColor: '#ddd6fe', background: '#faf5ff' }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#6d28d9', marginBottom: 10 }}>
+              ✓ Swap Executed
+            </div>
+            <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>
+              {String(swapResult.from?.token ?? swapFrom)} → {String(swapResult.to?.token ?? swapTo)}
+            </div>
+            <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>
+              Tx Hash: <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{String(swapResult.tx_hash ?? '')}</span>
+            </div>
+            <div style={{ fontSize: 12, color: '#6b7280' }}>
+              Block #{String(swapResult.block_number ?? '')} · {String(swapResult.status ?? '')}
+            </div>
+            {swapResult.tx_hash && (
+              <a href={`https://etherscan.io/tx/${swapResult.tx_hash}`} target="_blank" rel="noreferrer"
+                style={{ display: 'inline-block', marginTop: 10, fontSize: 12, color: '#7c3aed' }}>
+                View on Etherscan ↗
+              </a>
+            )}
           </div>
         )}
 
