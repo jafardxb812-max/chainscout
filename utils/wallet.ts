@@ -43,24 +43,25 @@ export const NATIVE_COIN_IDS: Record<string, string> = {
   '1101':  'ethereum',
 };
 
-// Primary RPC per chain — fallbacks tried in order via getRpcUrl()
+// Primary RPC per chain — fallbacks tried in order via getWorkingProvider()
+// Ankr public endpoints removed (now require API key)
 export const PUBLIC_RPC_URLS: Record<string, string[]> = {
   '1':     [
-    'https://rpc.ankr.com/eth',
     'https://cloudflare-eth.com',
     'https://ethereum.publicnode.com',
-    'https://1rpc.io/eth',
     'https://eth.llamarpc.com',
+    'https://1rpc.io/eth',
+    'https://rpc.eth.gateway.fm',
   ],
-  '10':    ['https://mainnet.optimism.io', 'https://rpc.ankr.com/optimism', 'https://1rpc.io/op'],
-  '56':    ['https://bsc-dataseed.binance.org', 'https://rpc.ankr.com/bsc', 'https://1rpc.io/bnb'],
-  '137':   ['https://polygon-rpc.com', 'https://rpc.ankr.com/polygon', 'https://1rpc.io/matic'],
-  '42161': ['https://arb1.arbitrum.io/rpc', 'https://rpc.ankr.com/arbitrum', 'https://1rpc.io/arb'],
-  '43114': ['https://api.avax.network/ext/bc/C/rpc', 'https://rpc.ankr.com/avalanche', 'https://1rpc.io/avax/c'],
-  '8453':  ['https://mainnet.base.org', 'https://rpc.ankr.com/base', 'https://1rpc.io/base'],
-  '324':   ['https://mainnet.era.zksync.io'],
-  '1101':  ['https://zkevm-rpc.com'],
-  '11155111': ['https://rpc.sepolia.org'],
+  '10':    ['https://mainnet.optimism.io', 'https://optimism.publicnode.com', 'https://1rpc.io/op'],
+  '56':    ['https://bsc-dataseed.binance.org', 'https://bsc-dataseed1.defibit.io', 'https://1rpc.io/bnb'],
+  '137':   ['https://polygon-rpc.com', 'https://polygon.publicnode.com', 'https://1rpc.io/matic'],
+  '42161': ['https://arb1.arbitrum.io/rpc', 'https://arbitrum.publicnode.com', 'https://1rpc.io/arb'],
+  '43114': ['https://api.avax.network/ext/bc/C/rpc', 'https://avalanche-c-chain.publicnode.com', 'https://1rpc.io/avax/c'],
+  '8453':  ['https://mainnet.base.org', 'https://base.publicnode.com', 'https://1rpc.io/base'],
+  '324':   ['https://mainnet.era.zksync.io', 'https://zksync.drpc.org'],
+  '1101':  ['https://zkevm-rpc.com', 'https://polygon-zkevm.drpc.org'],
+  '11155111': ['https://rpc.sepolia.org', 'https://ethereum-sepolia.publicnode.com'],
   '80002':    ['https://rpc-amoy.polygon.technology'],
 };
 
