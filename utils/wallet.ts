@@ -268,6 +268,31 @@ export function resolveTokenAddress(token: string, chainId: string): string | nu
   return null;
 }
 
+// ── Wallet role helpers ───────────────────────────────────────────────────────
+
+// Sender wallet private key — for outgoing txs (send, swap, bridge)
+// Uses SENDER_WALLET_PRIVATE_KEY first, falls back to legacy WALLET_PRIVATE_KEY
+export function getSenderPrivateKey(): string | null {
+  return process.env.SENDER_WALLET_PRIVATE_KEY || process.env.WALLET_PRIVATE_KEY || null;
+}
+
+// Receiver wallet address — the address customers send funds to
+// Uses RECEIVER_WALLET_ADDRESS if set; otherwise derives from sender key
+export function getReceiverAddress(): string | null {
+  if (process.env.RECEIVER_WALLET_ADDRESS) {
+    return process.env.RECEIVER_WALLET_ADDRESS;
+  }
+  // Fallback: derive from sender key (legacy single-wallet mode)
+  const key = getSenderPrivateKey();
+  if (!key) return null;
+  try {
+    const { ethers } = require('ethers');
+    return new ethers.Wallet(key).address;
+  } catch {
+    return null;
+  }
+}
+
 // Etherscan free tier: 5 req/s → wait 250ms between paginated calls to stay safe
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));

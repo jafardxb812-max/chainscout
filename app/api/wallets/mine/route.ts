@@ -9,6 +9,7 @@ import {
   loadWallets,
   addWallet,
   sleep,
+  getReceiverAddress,
 } from '@/utils/wallet';
 
 const COINGECKO = 'https://api.coingecko.com/api/v3';
@@ -59,16 +60,14 @@ async function getUsdtBalance(address: string, chainId: string): Promise<string 
 // Returns the server wallet address, USDT balance on every supported chain,
 // and whether it is already in the tracked wallets list.
 export async function GET() {
-  const privateKey = process.env.WALLET_PRIVATE_KEY;
-  if (!privateKey) {
+  const address = getReceiverAddress();
+  if (!address) {
     return NextResponse.json(
       { error: 'WALLET_PRIVATE_KEY not set in .env.local' },
       { status: 500 }
     );
   }
 
-  const wallet = new ethers.Wallet(privateKey);
-  const address = wallet.address;
 
   // Chains that have a known USDT contract
   const supportedChains = Object.keys(VERIFIED_TOKENS.USDT);
@@ -124,13 +123,11 @@ export async function GET() {
 // POST /api/wallets/mine/track
 // Auto-adds the server wallet into the tracked wallets list.
 export async function POST() {
-  const privateKey = process.env.WALLET_PRIVATE_KEY;
-  if (!privateKey) {
-    return NextResponse.json({ error: 'WALLET_PRIVATE_KEY not set' }, { status: 500 });
+  const address = getReceiverAddress();
+  if (!address) {
+    return NextResponse.json({ error: 'RECEIVER_WALLET_ADDRESS not set' }, { status: 500 });
   }
 
-  const wallet = new ethers.Wallet(privateKey);
-  const address = wallet.address;
   const chainIds = Object.keys(VERIFIED_TOKENS.USDT); // track on all USDT-supported chains
 
   const entry = await addWallet(address, 'My Server Wallet', chainIds);

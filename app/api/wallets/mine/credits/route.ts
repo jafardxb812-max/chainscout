@@ -7,6 +7,7 @@ import {
   getRpcUrl,
   ERC20_ABI,
   sleep,
+  getReceiverAddress,
 } from '@/utils/wallet';
 
 const COINGECKO = 'https://api.coingecko.com/api/v3';
@@ -110,17 +111,17 @@ async function fetchUsdtUsdPrice(chainId: string): Promise<number | null> {
 // GET /api/wallets/mine/credits
 // Shows total USDT credited (received) across all chains for the server wallet.
 export async function GET() {
-  const privateKey = process.env.WALLET_PRIVATE_KEY;
+  const address = getReceiverAddress();
   const apiKey     = process.env.ETHERSCAN_API_KEY;
 
-  if (!privateKey) {
-    return NextResponse.json({ error: 'WALLET_PRIVATE_KEY not set' }, { status: 500 });
+  if (!address) {
+    return NextResponse.json({ error: 'RECEIVER_WALLET_ADDRESS not set' }, { status: 500 });
   }
   if (!apiKey) {
     return NextResponse.json({ error: 'ETHERSCAN_API_KEY not set' }, { status: 500 });
   }
 
-  const address    = new ethers.Wallet(privateKey).address;
+  
   const addrLower  = address.toLowerCase();
   const chainIds   = Object.keys(VERIFIED_TOKENS.USDT);
   const BATCH      = 3;

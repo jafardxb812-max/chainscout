@@ -5,6 +5,7 @@ import {
   VERIFIED_TOKENS,
   getRpcUrl,
   sleep,
+  getSenderPrivateKey,
 } from '@/utils/wallet';
 
 // Blockchain proof of wallet origin.
@@ -87,11 +88,11 @@ function etherscanBaseForChain(chainId: string): string {
 
 // GET /api/wallets/mine/proof
 export async function GET() {
-  const privateKey = process.env.WALLET_PRIVATE_KEY;
+  const privateKey = getSenderPrivateKey();
   const apiKey     = process.env.ETHERSCAN_API_KEY;
 
   if (!privateKey) {
-    return NextResponse.json({ error: 'WALLET_PRIVATE_KEY not set' }, { status: 500 });
+    return NextResponse.json({ error: 'SENDER_WALLET_PRIVATE_KEY not set' }, { status: 500 });
   }
   if (!apiKey) {
     return NextResponse.json({ error: 'ETHERSCAN_API_KEY not set' }, { status: 500 });

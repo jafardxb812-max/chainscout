@@ -7,6 +7,7 @@ import {
   getRpcUrl,
   ERC20_ABI,
   sleep,
+  getReceiverAddress,
 } from '@/utils/wallet';
 
 type RawTransfer = {
@@ -76,13 +77,13 @@ async function getCurrentUsdtBalance(address: string, chainId: string): Promise<
 // GET /api/wallets/mine/credits/latest
 // Returns the most recent USDT credit across all chains + full coin about
 export async function GET() {
-  const privateKey = process.env.WALLET_PRIVATE_KEY;
+  const address = getReceiverAddress();
   const apiKey     = process.env.ETHERSCAN_API_KEY;
 
-  if (!privateKey) return NextResponse.json({ error: 'WALLET_PRIVATE_KEY not set' }, { status: 500 });
+  if (!address) return NextResponse.json({ error: 'RECEIVER_WALLET_ADDRESS not set' }, { status: 500 });
   if (!apiKey)     return NextResponse.json({ error: 'ETHERSCAN_API_KEY not set' },  { status: 500 });
 
-  const address  = new ethers.Wallet(privateKey).address;
+  
   const chainIds = Object.keys(VERIFIED_TOKENS.USDT);
   const BATCH    = 3;
 

@@ -6,6 +6,7 @@ import {
   VERIFIED_TOKENS,
   StoredWallet,
   sleep,
+  getReceiverAddress,
 } from '@/utils/wallet';
 
 type EtherscanTransfer = {
@@ -119,9 +120,9 @@ export async function GET(req: NextRequest) {
 
   // Optionally inject the server wallet (WALLET_PRIVATE_KEY) without persisting it
   if (includeMine) {
-    const pk = process.env.WALLET_PRIVATE_KEY;
+    const pk = getReceiverAddress();
     if (pk) {
-      const serverAddress = new ethers.Wallet(pk).address;
+      const serverAddress = pk;
       const alreadyIn = allWallets.some(
         (w) => w.address.toLowerCase() === serverAddress.toLowerCase()
       );

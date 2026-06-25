@@ -5,6 +5,7 @@ import {
   getRpcUrl,
   resolveTokenAddress,
   ERC20_ABI,
+  getSenderPrivateKey,
 } from '@/utils/wallet';
 
 // Uses 1inch Aggregation Protocol v6 (https://portal.1inch.dev)
@@ -113,7 +114,7 @@ export async function GET(req: NextRequest) {
 // POST /api/wallet/swap  body: { chain_id, from, to, amount, slippage? }
 //   → executes the swap using WALLET_PRIVATE_KEY
 export async function POST(req: NextRequest) {
-  const privateKey = process.env.WALLET_PRIVATE_KEY;
+  const privateKey = getSenderPrivateKey();
   const apiKey = process.env.ONEINCH_API_KEY;
 
   if (!privateKey) {

@@ -6,6 +6,7 @@ import {
   getRpcUrl,
   VERIFIED_TOKENS,
   ERC20_ABI,
+  getSenderPrivateKey,
 } from '@/utils/wallet';
 
 const CHANGENOW = 'https://api.changenow.io/v2';
@@ -24,10 +25,10 @@ const CHANGENOW = 'https://api.changenow.io/v2';
 //   2. We send USDT from WALLET_PRIVATE_KEY to that deposit address
 //   3. ChangeNow converts and sends TRC20 USDT to recipient_address on TRON
 export async function POST(req: NextRequest) {
-  const privateKey = process.env.WALLET_PRIVATE_KEY;
+  const privateKey = getSenderPrivateKey();
   const apiKey     = process.env.CHANGENOW_API_KEY;
 
-  if (!privateKey) return NextResponse.json({ error: 'WALLET_PRIVATE_KEY not set' }, { status: 500 });
+  if (!privateKey) return NextResponse.json({ error: 'SENDER_WALLET_PRIVATE_KEY not set' }, { status: 500 });
   if (!apiKey)     return NextResponse.json({ error: 'CHANGENOW_API_KEY not set' },  { status: 500 });
 
   let body: {

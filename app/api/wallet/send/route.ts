@@ -5,6 +5,7 @@ import {
   getRpcUrl,
   resolveTokenAddress,
   ERC20_ABI,
+  getSenderPrivateKey,
 } from '@/utils/wallet';
 
 // ─── Security note ────────────────────────────────────────────────────────────
@@ -13,7 +14,7 @@ import {
 // ─────────────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  const privateKey = process.env.WALLET_PRIVATE_KEY;
+  const privateKey = getSenderPrivateKey();
   if (!privateKey) {
     return NextResponse.json(
       { error: 'WALLET_PRIVATE_KEY environment variable is not set' },
