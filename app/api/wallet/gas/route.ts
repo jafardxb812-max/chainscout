@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ETHERSCAN_API_URLS, NATIVE_COIN_IDS, getWorkingProvider } from '@/utils/wallet';
+import { ETHERSCAN_API_URLS, NATIVE_COIN_IDS, getWorkingProvider, fetchEtherscan } from '@/utils/wallet';
 
 const COINGECKO = 'https://api.coingecko.com/api/v3';
 
@@ -61,21 +61,18 @@ function buildFeeTable(
 export async function GET(req: NextRequest) {
   const chainId = req.nextUrl.searchParams.get('chain_id') ?? '1';
 
-  const apiKey  = process.env.ETHERSCAN_API_KEY;
   const baseUrl = ETHERSCAN_API_URLS[chainId];
 
   // Fetch gas oracle + ETH price in parallel
   const [oracleData, ethUsd] = await Promise.all([
-    // Etherscan gas oracle (only works for Ethereum mainnet and a few others)
+    // Etherscan gas oracle — uses key rotation + retry via fetchEtherscan
     (async () => {
-      if (!apiKey || !baseUrl) return null;
+      if (!baseUrl) return null;
       try {
-        const url = new URL(baseUrl);
-        url.searchParams.set('module', 'gastracker');
-        url.searchParams.set('action', 'gasoracle');
-        url.searchParams.set('apikey', apiKey);
-        const res = await fetch(url.toString(), { next: { revalidate: 15 } });
-        const data = await res.json();
+        const data = await fetchEtherscan(baseUrl, {
+          module: 'gastracker',
+          action: 'gasoracle',
+        }, { ttlMs: 15_000 }) as { status: string; result: Record<string, string> };
         if (data.status === '1' && data.result) return data.result as {
           SafeGasPrice: string;
           ProposeGasPrice: string;

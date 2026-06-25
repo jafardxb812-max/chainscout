@@ -246,7 +246,7 @@ export function getRpcUrl(chainId: string): string | null {
   return urls?.[0] ?? null;
 }
 
-// Try each RPC in order until one succeeds
+// Try each RPC in order until one succeeds — 5s timeout per attempt
 export async function getWorkingProvider(chainId: string): Promise<import('ethers').JsonRpcProvider | null> {
   const { ethers } = await import('ethers');
   const override = process.env[`RPC_URL_${chainId}`];
@@ -254,7 +254,10 @@ export async function getWorkingProvider(chainId: string): Promise<import('ether
   for (const url of urls) {
     try {
       const provider = new ethers.JsonRpcProvider(url);
-      await provider.getBlockNumber(); // quick connectivity check
+      await Promise.race([
+        provider.getBlockNumber(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+      ]);
       return provider;
     } catch { continue; }
   }
