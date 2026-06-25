@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
 
   let data: { status: string; message: string; result: unknown[] | string };
   try {
-    data = await fetchEtherscan(baseUrl, params, { ttlMs: 30_000 }) as typeof data;
+    data = await fetchEtherscan(baseUrl, params, { ttlMs: 30_000, chainId }) as typeof data;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: `Etherscan request failed: ${msg}` }, { status: 502 });

@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
       module: 'account', action: 'txlist',
       address, startblock: '0', endblock: '99999999',
       page, offset, sort,
-    }, { ttlMs: 30_000 }) as typeof data;
+    }, { ttlMs: 30_000, chainId }) as typeof data;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     return NextResponse.json({ error: `Etherscan request failed: ${msg}` }, { status: 502 });

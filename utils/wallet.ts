@@ -1,21 +1,20 @@
 // Shared utilities for wallet API routes
 
-// Etherscan-family API base URLs per chain ID
-// All accept the same ETHERSCAN_API_KEY from etherscan.io (free registration)
-export const ETHERSCAN_API_URLS: Record<string, string> = {
-  '1':        'https://api.etherscan.io/api',
-  '10':       'https://api-optimistic.etherscan.io/api',
-  '56':       'https://api.bscscan.com/api',
-  '137':      'https://api.polygonscan.com/api',
-  '42161':    'https://api.arbiscan.io/api',
-  '43114':    'https://api.snowscan.xyz/api',
-  '8453':     'https://api.basescan.org/api',
-  '324':      'https://block-explorer-api.mainnet.zksync.io/api',
-  '1101':     'https://api-zkevm.polygonscan.com/api',
-  '59144':    'https://api.lineascan.build/api',
-  '534352':   'https://api.scrollscan.com/api',
-  '11155111': 'https://api-sepolia.etherscan.io/api',
-};
+// Etherscan V2 unified endpoint — supports all chains via chainid= parameter
+// One API key works for all chains (Ethereum, BSC, Polygon, Arbitrum, etc.)
+// Docs: https://docs.etherscan.io/v2-migration
+export const ETHERSCAN_V2_URL = 'https://api.etherscan.io/v2/api';
+
+// Supported chain IDs for Etherscan V2
+export const ETHERSCAN_SUPPORTED_CHAINS = new Set([
+  '1', '10', '56', '137', '42161', '43114', '8453',
+  '324', '1101', '59144', '534352', '11155111', '80002',
+]);
+
+// Legacy map kept for backward compat (some code checks if baseUrl exists)
+export const ETHERSCAN_API_URLS: Record<string, string> = Object.fromEntries(
+  [...ETHERSCAN_SUPPORTED_CHAINS].map((id) => [id, ETHERSCAN_V2_URL])
+);
 
 // CoinGecko platform IDs for each chain (used to fetch token metadata + price)
 export const COINGECKO_PLATFORMS: Record<string, string> = {
@@ -337,18 +336,20 @@ function cacheSet(key: string, data: unknown, ttlMs: number): void {
   }
 }
 
-// ── Etherscan fetch with auto-retry + cache ───────────────────────────────────
+// ── Etherscan V2 fetch with auto-retry + cache ────────────────────────────────
+// Always uses the V2 unified endpoint with chainid= parameter
 // ttlMs: how long to cache a successful response (default 30s)
-// retries: how many times to retry on rate-limit / server error
 export async function fetchEtherscan(
-  baseUrl: string,
+  _baseUrl: string,                         // kept for compat, always overridden with V2 URL
   params: Record<string, string>,
-  options: { ttlMs?: number; retries?: number; apiKey?: string } = {}
+  options: { ttlMs?: number; retries?: number; apiKey?: string; chainId?: string } = {}
 ): Promise<unknown> {
   const { ttlMs = 30_000, retries = 3 } = options;
   const key = options.apiKey ?? getEtherscanKey();
 
-  const url = new URL(baseUrl);
+  const url = new URL(ETHERSCAN_V2_URL);
+  // V2 requires chainid — infer from params.address context or options
+  if (options.chainId) url.searchParams.set('chainid', options.chainId);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   url.searchParams.set('apikey', key);
 

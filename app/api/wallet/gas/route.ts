@@ -72,7 +72,7 @@ export async function GET(req: NextRequest) {
         const data = await fetchEtherscan(baseUrl, {
           module: 'gastracker',
           action: 'gasoracle',
-        }, { ttlMs: 15_000 }) as { status: string; result: Record<string, string> };
+        }, { ttlMs: 15_000, chainId }) as { status: string; result: Record<string, string> };
         if (data.status === '1' && data.result) return data.result as {
           SafeGasPrice: string;
           ProposeGasPrice: string;
