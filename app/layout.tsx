@@ -2,6 +2,7 @@ import '@/app/globals.css';
 import type { Metadata } from 'next';
 import { Inter, Poppins } from 'next/font/google';
 import Header from '@/components/Header';
+import { Web3Providers } from '@/app/web3-providers';
 
 const inter = Inter({ subsets: ['latin'] });
 const poppins = Poppins({
@@ -27,8 +28,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={`${inter.className} ${poppins.variable} min-h-screen`}>
-        <Header />
-        {children}
+        <Web3Providers>
+          <Header />
+          {children}
+        </Web3Providers>
       </body>
     </html>
   );
