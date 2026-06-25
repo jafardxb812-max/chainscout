@@ -2,8 +2,31 @@
 
 import { useState, useEffect } from 'react';
 import { useAppKit } from '@reown/appkit/react';
-import { useAccount, useDisconnect } from 'wagmi';
+import { useAccount, useDisconnect, useWriteContract, useWaitForTransactionReceipt } from 'wagmi';
+import { parseUnits } from 'viem';
 import { walletConnectEnabled } from '@/app/web3-providers';
+
+// USDT contract addresses per chain (client-side, for direct MetaMask signing)
+const USDT_ADDRESSES: Record<string, `0x${string}`> = {
+  '1':     '0xdAC17F958D2ee523a2206206994597C13D831ec7',
+  '137':   '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
+  '56':    '0x55d398326f99059fF775485246999027B3197955',
+  '42161': '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
+  '10':    '0x94b008aA00579c1307B0EF2c499aD98a8ce58e58',
+  '8453':  '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
+  '43114': '0x9702230A8Ea53601f5cD2dc00fDBc13d4dF4A8c7',
+};
+
+const ERC20_TRANSFER_ABI = [{
+  name: 'transfer',
+  type: 'function' as const,
+  stateMutability: 'nonpayable' as const,
+  inputs: [
+    { name: 'to',    type: 'address' },
+    { name: 'value', type: 'uint256' },
+  ],
+  outputs: [{ type: 'bool' }],
+}];
 
 const CHAINS = [
   { id: '1',     name: 'Ethereum Mainnet' },
@@ -64,6 +87,7 @@ function ConnectButton() {
 export default function WalletPage() {
   const { address: connectedAddress, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
+  const { writeContractAsync } = useWriteContract();
 
   const [address,  setAddress]  = useState('');
   const [chainId,  setChainId]  = useState('1');
@@ -141,12 +165,25 @@ export default function WalletPage() {
   }
 
   async function doSend() {
-    const data = await call('/api/wallet/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ chain_id: chainId, to: sendTo, amount: sendAmount, token: 'usdt' }),
-    });
-    if (data) setSendResult(data);
+    const usdtAddr = USDT_ADDRESSES[chainId];
+    if (!usdtAddr) { setError(`USDT not supported on chain ${chainId}`); return; }
+    if (!sendTo.startsWith('0x') || sendTo.length !== 42) { setError('Invalid recipient address'); return; }
+    setLoading(true);
+    setError('');
+    try {
+      // Signs directly via MetaMask — no server private key needed
+      const txHash = await writeContractAsync({
+        address: usdtAddr,
+        abi: ERC20_TRANSFER_ABI,
+        functionName: 'transfer',
+        args: [sendTo as `0x${string}`, parseUnits(sendAmount, 6)],
+      });
+      setSendResult({ success: true, tx_hash: txHash, from: connectedAddress, to: sendTo, amount: sendAmount });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Transaction failed');
+    } finally {
+      setLoading(false);
+    }
   }
 
   async function fetchBridgeQuote() {
