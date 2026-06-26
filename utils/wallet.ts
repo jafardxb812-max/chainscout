@@ -46,7 +46,7 @@ export const PUBLIC_RPC_URLS: Record<string, string[]> = {
   ],
   '10':    ['https://mainnet.optimism.io', 'https://optimism.publicnode.com', 'https://1rpc.io/op'],
   '56':    ['https://bsc-dataseed.binance.org', 'https://bsc-dataseed1.defibit.io', 'https://1rpc.io/bnb'],
-  '137':   ['https://polygon-rpc.com', 'https://polygon.publicnode.com', 'https://1rpc.io/matic'],
+  '137':   ['https://polygon.publicnode.com', 'https://1rpc.io/matic', 'https://polygon-rpc.com'],
   '42161': ['https://arb1.arbitrum.io/rpc', 'https://arbitrum.publicnode.com', 'https://1rpc.io/arb'],
   '43114': ['https://api.avax.network/ext/bc/C/rpc', 'https://avalanche-c-chain.publicnode.com', 'https://1rpc.io/avax/c'],
   '8453':  ['https://mainnet.base.org', 'https://base.publicnode.com', 'https://1rpc.io/base'],
