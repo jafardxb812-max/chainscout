@@ -39,10 +39,9 @@ export const NATIVE_COIN_IDS: Record<string, string> = {
 // Ankr public endpoints removed (now require API key)
 export const PUBLIC_RPC_URLS: Record<string, string[]> = {
   '1':     [
-    'https://cloudflare-eth.com',
     'https://ethereum.publicnode.com',
-    'https://eth.llamarpc.com',
     'https://1rpc.io/eth',
+    'https://eth.llamarpc.com',
     'https://rpc.eth.gateway.fm',
   ],
   '10':    ['https://mainnet.optimism.io', 'https://optimism.publicnode.com', 'https://1rpc.io/op'],

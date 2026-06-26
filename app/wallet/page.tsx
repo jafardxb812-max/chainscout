@@ -49,7 +49,7 @@ const CHAINS = [
   { id: '42161', name: 'Arbitrum One' },
 ];
 
-type Tab = 'balance' | 'usdt' | 'send' | 'bridge' | 'swap' | 'gas' | 'txs';
+type Tab = 'balance' | 'usdt' | 'send' | 'server' | 'bridge' | 'swap' | 'gas' | 'txs';
 type SendToken = 'USDT' | 'ETH';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -72,12 +72,13 @@ function apiErr(data: AnyObj): string | null {
 
 const TOKENS = ['ETH', 'USDT', 'USDC', 'WETH'];
 
-const TABS: { id: Tab; label: string; usdt?: boolean; swap?: boolean }[] = [
+const TABS: { id: Tab; label: string; usdt?: boolean; swap?: boolean; server?: boolean }[] = [
   { id: 'balance', label: 'Balance' },
   { id: 'usdt',    label: 'USDT History', usdt: true },
-  { id: 'send',    label: 'Send USDT',    usdt: true },
-  { id: 'bridge',  label: 'Bridge →TRC20', usdt: true },
-  { id: 'swap',    label: 'Swap',          swap: true },
+  { id: 'send',    label: 'Send (MetaMask)', usdt: true },
+  { id: 'server',  label: 'Server Wallet',  server: true },
+  { id: 'bridge',  label: 'Bridge →TRC20',  usdt: true },
+  { id: 'swap',    label: 'Swap',           swap: true },
   { id: 'gas',     label: 'Gas Prices' },
   { id: 'txs',     label: 'Transactions' },
 ];
@@ -213,6 +214,13 @@ export default function WalletPage() {
   const [swapQuote,  setSwapQuote]  = useState<AnyObj | null>(null);
   const [swapResult, setSwapResult] = useState<AnyObj | null>(null);
 
+  // server wallet tab
+  const [serverWallet,    setServerWallet]    = useState<AnyObj | null>(null);
+  const [serverSendTo,    setServerSendTo]    = useState('');
+  const [serverSendAmt,   setServerSendAmt]   = useState('');
+  const [serverSendToken, setServerSendToken] = useState<'ETH' | 'USDT'>('ETH');
+  const [serverSendResult, setServerSendResult] = useState<AnyObj | null>(null);
+
   // gas tab
   const [gas, setGas] = useState<AnyObj | null>(null);
 
@@ -300,6 +308,34 @@ export default function WalletPage() {
     }
   }
 
+  async function fetchServerWallet() {
+    const data = await call(`/api/wallet/server-wallet?chain_id=${chainId}`);
+    if (data) setServerWallet(data);
+  }
+
+  async function doServerSend() {
+    if (!serverSendTo.startsWith('0x') || serverSendTo.length !== 42) {
+      setError('Invalid recipient address'); return;
+    }
+    if (!serverSendAmt || parseFloat(serverSendAmt) <= 0) {
+      setError('Enter a valid amount'); return;
+    }
+    const data = await call('/api/wallet/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chain_id: chainId,
+        to: serverSendTo,
+        amount: serverSendAmt,
+        token: serverSendToken.toLowerCase(),
+      }),
+    });
+    if (data) {
+      setServerSendResult(data);
+      fetchServerWallet(); // refresh balance after send
+    }
+  }
+
   async function fetchBridgeQuote() {
     setBridgeQuote(null);
     const data = await call(
@@ -364,14 +400,15 @@ export default function WalletPage() {
   }
 
   function go() {
-    if (tab === 'usdt') { setUsdtPage(1); fetchUsdtHistory(); }
-    else if (tab === 'gas') fetchGas();
-    else if (tab === 'txs') { setTxsPage(1); fetchTxs(); }
+    if (tab === 'usdt')   { setUsdtPage(1); fetchUsdtHistory(); }
+    else if (tab === 'gas')    fetchGas();
+    else if (tab === 'txs')  { setTxsPage(1); fetchTxs(); }
+    else if (tab === 'server') fetchServerWallet();
   }
 
-  const needsAddr = tab !== 'gas' && tab !== 'send' && tab !== 'bridge' && tab !== 'swap' && tab !== 'balance';
+  const needsAddr = tab !== 'gas' && tab !== 'send' && tab !== 'bridge' && tab !== 'swap' && tab !== 'balance' && tab !== 'server';
   const canFetch  = !needsAddr || address.startsWith('0x');
-  const showFetch = tab !== 'send' && tab !== 'bridge' && tab !== 'swap' && tab !== 'balance';
+  const showFetch = tab !== 'send' && tab !== 'bridge' && tab !== 'swap' && tab !== 'balance' && tab !== 'server';
 
   // ── styles ──────────────────────────────────────────────────────────────────
   const card: React.CSSProperties = {
@@ -454,7 +491,9 @@ export default function WalletPage() {
             {TABS.map(t => (
               <button key={t.id} onClick={() => setTab(t.id)} style={{
                 padding: '6px 14px', borderRadius: 20, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 500,
-                background: tab === t.id ? (t.usdt ? '#0d9488' : t.swap ? '#7c3aed' : '#2563eb') : '#f1f5f9',
+                background: tab === t.id
+                  ? (t.server ? '#ea580c' : t.usdt ? '#0d9488' : t.swap ? '#7c3aed' : '#2563eb')
+                  : '#f1f5f9',
                 color: tab === t.id ? '#fff' : '#475569',
               }}>
                 {t.label}
@@ -591,6 +630,116 @@ export default function WalletPage() {
         {/* ── Balance (wagmi hooks, no server RPC) ───────────────────────────── */}
         {tab === 'balance' && (
           <BalancePanel address={address} chainId={chainId} token={token} />
+        )}
+
+        {/* ── Server Wallet ─────────────────────────────────────────────────── */}
+        {tab === 'server' && (
+          <div>
+            {/* Info + load button */}
+            <div style={{ ...card }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: '#ea580c', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 12 }}>
+                Server Wallet · No MetaMask Needed
+              </div>
+              <div style={{ fontSize: 12, color: '#64748b', marginBottom: 14, lineHeight: 1.6 }}>
+                This wallet is managed on the server using <code>SENDER_WALLET_PRIVATE_KEY</code> from <code>.env.local</code>.
+                Fund it with ETH/USDT and send directly without MetaMask.
+              </div>
+              <button onClick={fetchServerWallet} disabled={loading}
+                style={{ width: '100%', padding: '10px', borderRadius: 8, border: 'none', cursor: loading ? 'not-allowed' : 'pointer', background: loading ? '#94a3b8' : '#ea580c', color: '#fff', fontSize: 14, fontWeight: 600 }}>
+                {loading ? 'Loading…' : serverWallet ? '↻ Refresh Balance' : 'Load Server Wallet'}
+              </button>
+            </div>
+
+            {/* Wallet info */}
+            {serverWallet && !serverWallet.error && (
+              <>
+                <div style={card}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 10 }}>
+                    Wallet Address
+                  </div>
+                  <div style={{ fontFamily: 'monospace', fontSize: 13, color: '#1e293b', wordBreak: 'break-all', marginBottom: 6 }}>
+                    {String(serverWallet.address ?? '')}
+                  </div>
+                  <div style={{ fontSize: 11, color: '#94a3b8' }}>
+                    {serverWallet.funded ? '● Funded' : '○ Empty — send ETH/USDT to this address to fund'}
+                  </div>
+
+                  {/* Balances */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 16 }}>
+                    {[
+                      { label: 'ETH Balance', value: serverWallet.balances?.eth?.amount ?? '–', symbol: 'ETH', color: '#2563eb' },
+                      { label: 'USDT Balance', value: serverWallet.balances?.usdt?.amount ?? '–', symbol: 'USDT', color: '#0d9488' },
+                    ].map(b => (
+                      <div key={b.label} style={{ padding: '14px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
+                        <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>{b.label}</div>
+                        <div style={{ fontSize: 22, fontWeight: 700, color: b.color }}>
+                          {b.value} <span style={{ fontSize: 12, color: '#94a3b8' }}>{b.symbol}</span>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Send from server wallet */}
+                <div style={card}>
+                  <div style={{ fontSize: 11, fontWeight: 600, color: '#ea580c', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 14 }}>
+                    Send from Server Wallet
+                  </div>
+
+                  {/* Token selector */}
+                  <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
+                    {(['ETH', 'USDT'] as const).map(t => (
+                      <button key={t} onClick={() => { setServerSendToken(t); setServerSendResult(null); }}
+                        style={{ flex: 1, padding: '8px', borderRadius: 8, border: `2px solid ${serverSendToken === t ? '#ea580c' : '#e2e8f0'}`, background: serverSendToken === t ? '#fff7ed' : '#fff', color: serverSendToken === t ? '#ea580c' : '#64748b', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+                        {t === 'ETH' ? '⬡ ETH' : '$ USDT'}
+                      </button>
+                    ))}
+                  </div>
+
+                  <div style={{ marginBottom: 10 }}>
+                    <label style={label}>Recipient Address</label>
+                    <input value={serverSendTo} onChange={e => setServerSendTo(e.target.value)}
+                      placeholder="0x..." style={{ ...input, fontFamily: 'monospace' }} />
+                  </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={label}>Amount ({serverSendToken})</label>
+                    <input type="number" value={serverSendAmt} onChange={e => setServerSendAmt(e.target.value)}
+                      placeholder={serverSendToken === 'ETH' ? 'e.g. 0.01' : 'e.g. 10'} style={input} />
+                  </div>
+                  <button onClick={doServerSend} disabled={loading || !serverSendTo || !serverSendAmt}
+                    style={btn(!loading && !!serverSendTo && !!serverSendAmt, '#ea580c')}>
+                    {loading ? 'Sending…' : `Send ${serverSendToken} from Server Wallet`}
+                  </button>
+                </div>
+
+                {/* Send result */}
+                {serverSendResult && (
+                  <div style={{ ...card, borderColor: '#fed7aa', background: '#fff7ed' }}>
+                    <div style={{ fontSize: 13, fontWeight: 700, color: '#c2410c', marginBottom: 10 }}>
+                      ✓ Sent from Server Wallet
+                    </div>
+                    <div style={{ fontSize: 12, color: '#374151', marginBottom: 4 }}>
+                      Tx Hash: <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{String(serverSendResult.tx_hash ?? '')}</span>
+                    </div>
+                    <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
+                      To: <span style={{ fontFamily: 'monospace' }}>{shortAddr(String(serverSendResult.to ?? serverSendTo))}</span>
+                      · Amount: {String(serverSendResult.amount ?? serverSendAmt)} {serverSendToken}
+                    </div>
+                    {serverSendResult.tx_hash && (
+                      <a href={`https://etherscan.io/tx/${serverSendResult.tx_hash}`} target="_blank" rel="noreferrer"
+                        style={{ fontSize: 12, color: '#2563eb' }}>View on Etherscan ↗</a>
+                    )}
+                  </div>
+                )}
+              </>
+            )}
+
+            {serverWallet?.error && (
+              <div style={{ ...card, borderColor: '#fecaca', background: '#fef2f2', color: '#dc2626', fontSize: 13 }}>
+                {String(serverWallet.error)}
+              </div>
+            )}
+          </div>
         )}
 
         {/* ── USDT Transfer History ──────────────────────────────────────────── */}
