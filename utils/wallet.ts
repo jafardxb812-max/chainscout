@@ -1,20 +1,21 @@
 // Shared utilities for wallet API routes
 
-// Etherscan-family API base URLs per chain ID
-// All accept the same ETHERSCAN_API_KEY from etherscan.io (free registration)
+// Etherscan v2 unified API — all chains via single endpoint with chainid param
+// V1 per-chain endpoints are deprecated as of 2025
+const ETHERSCAN_V2 = 'https://api.etherscan.io/v2/api';
 export const ETHERSCAN_API_URLS: Record<string, string> = {
-  '1':        'https://api.etherscan.io/api',
-  '10':       'https://api-optimistic.etherscan.io/api',
-  '56':       'https://api.bscscan.com/api',
-  '137':      'https://api.polygonscan.com/api',
-  '42161':    'https://api.arbiscan.io/api',
-  '43114':    'https://api.snowscan.xyz/api',
-  '8453':     'https://api.basescan.org/api',
-  '324':      'https://block-explorer-api.mainnet.zksync.io/api',
-  '1101':     'https://api-zkevm.polygonscan.com/api',
-  '59144':    'https://api.lineascan.build/api',
-  '534352':   'https://api.scrollscan.com/api',
-  '11155111': 'https://api-sepolia.etherscan.io/api',
+  '1':        `${ETHERSCAN_V2}?chainid=1`,
+  '10':       `${ETHERSCAN_V2}?chainid=10`,
+  '56':       `${ETHERSCAN_V2}?chainid=56`,
+  '137':      `${ETHERSCAN_V2}?chainid=137`,
+  '42161':    `${ETHERSCAN_V2}?chainid=42161`,
+  '43114':    `${ETHERSCAN_V2}?chainid=43114`,
+  '8453':     `${ETHERSCAN_V2}?chainid=8453`,
+  '324':      `${ETHERSCAN_V2}?chainid=324`,
+  '1101':     `${ETHERSCAN_V2}?chainid=1101`,
+  '59144':    `${ETHERSCAN_V2}?chainid=59144`,
+  '534352':   `${ETHERSCAN_V2}?chainid=534352`,
+  '11155111': `${ETHERSCAN_V2}?chainid=11155111`,
 };
 
 // CoinGecko platform IDs for each chain (used to fetch token metadata + price)
