@@ -1,21 +1,12 @@
 // Shared utilities for wallet API routes
 
-// Etherscan v2 unified API — all chains via single endpoint with chainid param
-// V1 per-chain endpoints are deprecated as of 2025
+// Etherscan v2 unified API — tested working chains only
+// BSC (56), Optimism (10), Base (8453), Avalanche (43114) require separate API keys
 const ETHERSCAN_V2 = 'https://api.etherscan.io/v2/api';
 export const ETHERSCAN_API_URLS: Record<string, string> = {
-  '1':        `${ETHERSCAN_V2}?chainid=1`,
-  '10':       `${ETHERSCAN_V2}?chainid=10`,
-  '56':       `${ETHERSCAN_V2}?chainid=56`,
-  '137':      `${ETHERSCAN_V2}?chainid=137`,
-  '42161':    `${ETHERSCAN_V2}?chainid=42161`,
-  '43114':    `${ETHERSCAN_V2}?chainid=43114`,
-  '8453':     `${ETHERSCAN_V2}?chainid=8453`,
-  '324':      `${ETHERSCAN_V2}?chainid=324`,
-  '1101':     `${ETHERSCAN_V2}?chainid=1101`,
-  '59144':    `${ETHERSCAN_V2}?chainid=59144`,
-  '534352':   `${ETHERSCAN_V2}?chainid=534352`,
-  '11155111': `${ETHERSCAN_V2}?chainid=11155111`,
+  '1':     `${ETHERSCAN_V2}?chainid=1`,    // Ethereum Mainnet ✓
+  '137':   `${ETHERSCAN_V2}?chainid=137`,  // Polygon ✓
+  '42161': `${ETHERSCAN_V2}?chainid=42161`, // Arbitrum One ✓
 };
 
 // CoinGecko platform IDs for each chain (used to fetch token metadata + price)
