@@ -6,7 +6,7 @@ import {
   useAccount, useDisconnect, useWriteContract, useSendTransaction,
   useBalance, useReadContract, useChainId, useSwitchChain,
 } from 'wagmi';
-import { parseUnits, parseEther, formatUnits, formatEther } from 'viem';
+import { parseUnits, parseEther, formatUnits, formatEther, parseGwei } from 'viem';
 import { walletConnectEnabled } from '@/app/web3-providers';
 
 // USDT contract addresses — only chains with working Etherscan v2 API
@@ -51,6 +51,7 @@ const CHAINS = [
 
 type Tab = 'balance' | 'usdt' | 'send' | 'server' | 'bridge' | 'swap' | 'gas' | 'txs';
 type SendToken = 'USDT' | 'ETH';
+type GasSpeed = 'slow' | 'standard' | 'fast';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyObj = Record<string, any>;
@@ -174,6 +175,26 @@ function BalancePanel({ address, chainId, token }: { address: string; chainId: s
   );
 }
 
+function GasSpeedPicker({ value, onChange, liveGas, color = '#2563eb' }: {
+  value: GasSpeed;
+  onChange: (s: GasSpeed) => void;
+  liveGas: { slow: number; standard: number; fast: number } | null;
+  color?: string;
+}) {
+  const opts: [GasSpeed, string][] = [['slow', '🐢 Slow'], ['standard', '⚡ Standard'], ['fast', '🚀 Fast']];
+  return (
+    <div style={{ display: 'flex', gap: 6 }}>
+      {opts.map(([speed, lbl]) => (
+        <button key={speed} onClick={() => onChange(speed)}
+          style={{ flex: 1, padding: '7px 4px', borderRadius: 8, border: `2px solid ${value === speed ? color : '#e2e8f0'}`, background: value === speed ? `${color}18` : '#fff', color: value === speed ? color : '#64748b', fontSize: 11, fontWeight: 600, cursor: 'pointer', lineHeight: 1.4 }}>
+          <div>{lbl}</div>
+          {liveGas && <div style={{ fontSize: 10, opacity: 0.75 }}>{liveGas[speed]} Gwei</div>}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 export default function WalletPage() {
   const { address: connectedAddress, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
@@ -195,10 +216,11 @@ export default function WalletPage() {
   const [usdtTxs, setUsdtTxs] = useState<AnyObj[]>([]);
 
   // send tab
-  const [sendToken,  setSendToken]  = useState<SendToken>('USDT');
-  const [sendTo,     setSendTo]     = useState('');
-  const [sendAmount, setSendAmount] = useState('');
-  const [sendResult, setSendResult] = useState<AnyObj | null>(null);
+  const [sendToken,    setSendToken]    = useState<SendToken>('USDT');
+  const [sendTo,       setSendTo]       = useState('');
+  const [sendAmount,   setSendAmount]   = useState('');
+  const [sendResult,   setSendResult]   = useState<AnyObj | null>(null);
+  const [sendGasSpeed, setSendGasSpeed] = useState<GasSpeed>('standard');
 
   // bridge tab
   const [bridgeTo,     setBridgeTo]     = useState('');
@@ -215,11 +237,15 @@ export default function WalletPage() {
   const [swapResult, setSwapResult] = useState<AnyObj | null>(null);
 
   // server wallet tab
-  const [serverWallet,    setServerWallet]    = useState<AnyObj | null>(null);
-  const [serverSendTo,    setServerSendTo]    = useState('');
-  const [serverSendAmt,   setServerSendAmt]   = useState('');
-  const [serverSendToken, setServerSendToken] = useState<'ETH' | 'USDT'>('ETH');
-  const [serverSendResult, setServerSendResult] = useState<AnyObj | null>(null);
+  const [serverWallet,      setServerWallet]      = useState<AnyObj | null>(null);
+  const [serverSendTo,      setServerSendTo]       = useState('');
+  const [serverSendAmt,     setServerSendAmt]      = useState('');
+  const [serverSendToken,   setServerSendToken]    = useState<'ETH' | 'USDT'>('ETH');
+  const [serverSendResult,  setServerSendResult]   = useState<AnyObj | null>(null);
+  const [serverGasSpeed,    setServerGasSpeed]     = useState<GasSpeed>('standard');
+
+  // live gas prices (shared, fetched on send tabs)
+  const [liveGas, setLiveGas] = useState<{ slow: number; standard: number; fast: number } | null>(null);
 
   // gas tab
   const [gas, setGas] = useState<AnyObj | null>(null);
@@ -243,6 +269,26 @@ export default function WalletPage() {
       switchChain?.({ chainId: parseInt(chainId, 10) });
     }
   }, [chainId, tab, isConnected, connectedChainId, switchChain]);
+
+  // Auto-fetch live gas prices when on a send tab
+  useEffect(() => {
+    if (tab === 'send' || tab === 'server') fetchLiveGas();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, chainId]);
+
+  async function fetchLiveGas() {
+    try {
+      const res = await fetch(`/api/wallet/gas?chain_id=${chainId}`);
+      const data: AnyObj = await res.json();
+      if (data.gas_price_gwei) {
+        setLiveGas({
+          slow:     data.gas_price_gwei.slow     ?? 0,
+          standard: data.gas_price_gwei.standard ?? 0,
+          fast:     data.gas_price_gwei.fast     ?? 0,
+        });
+      }
+    } catch { /* ignore — gas selector still works without live prices */ }
+  }
 
   async function call(url: string, opts?: RequestInit) {
     setLoading(true);
@@ -282,12 +328,17 @@ export default function WalletPage() {
     setLoading(true);
     setError('');
     try {
+      // Gas price override from live oracle
+      const gweiValue = liveGas?.[sendGasSpeed];
+      const gasOverride = gweiValue ? { gasPrice: parseGwei(gweiValue.toString()) } : {};
+
       let txHash: string;
       if (sendToken === 'ETH') {
         // Send ETH directly via MetaMask
         txHash = await sendTransactionAsync({
           to: sendTo as `0x${string}`,
           value: parseEther(sendAmount),
+          ...gasOverride,
         });
       } else {
         // Send USDT ERC-20 via MetaMask
@@ -298,9 +349,10 @@ export default function WalletPage() {
           abi: ERC20_TRANSFER_ABI,
           functionName: 'transfer',
           args: [sendTo as `0x${string}`, parseUnits(sendAmount, 6)],
+          ...gasOverride,
         });
       }
-      setSendResult({ success: true, tx_hash: txHash, token: sendToken, from: connectedAddress, to: sendTo, amount: sendAmount });
+      setSendResult({ success: true, tx_hash: txHash, token: sendToken, from: connectedAddress, to: sendTo, amount: sendAmount, gas_speed: sendGasSpeed });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Transaction failed');
     } finally {
@@ -328,6 +380,7 @@ export default function WalletPage() {
         to: serverSendTo,
         amount: serverSendAmt,
         token: serverSendToken.toLowerCase(),
+        gas_speed: serverGasSpeed,
       }),
     });
     if (data) {
@@ -534,6 +587,10 @@ export default function WalletPage() {
                 <input type="number" value={sendAmount} onChange={e => setSendAmount(e.target.value)}
                   placeholder={sendToken === 'ETH' ? 'e.g. 0.01' : 'e.g. 10'} style={input} />
               </div>
+              <div>
+                <label style={label}>Gas Speed</label>
+                <GasSpeedPicker value={sendGasSpeed} onChange={setSendGasSpeed} liveGas={liveGas} color="#0d9488" />
+              </div>
               <button onClick={doSend} disabled={loading || !isConnected || !sendTo || !sendAmount}
                 style={btn(!loading && isConnected && !!sendTo && !!sendAmount, '#0d9488')}>
                 {loading ? 'Sending…' : `Send ${sendToken} via MetaMask`}
@@ -706,6 +763,10 @@ export default function WalletPage() {
                     <input type="number" value={serverSendAmt} onChange={e => setServerSendAmt(e.target.value)}
                       placeholder={serverSendToken === 'ETH' ? 'e.g. 0.01' : 'e.g. 10'} style={input} />
                   </div>
+                  <div style={{ marginBottom: 12 }}>
+                    <label style={label}>Gas Speed</label>
+                    <GasSpeedPicker value={serverGasSpeed} onChange={setServerGasSpeed} liveGas={liveGas} color="#ea580c" />
+                  </div>
                   <button onClick={doServerSend} disabled={loading || !serverSendTo || !serverSendAmt}
                     style={btn(!loading && !!serverSendTo && !!serverSendAmt, '#ea580c')}>
                     {loading ? 'Sending…' : `Send ${serverSendToken} from Server Wallet`}
@@ -724,6 +785,8 @@ export default function WalletPage() {
                     <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 4 }}>
                       To: <span style={{ fontFamily: 'monospace' }}>{shortAddr(String(serverSendResult.to ?? serverSendTo))}</span>
                       · Amount: {String(serverSendResult.amount ?? serverSendAmt)} {serverSendToken}
+                      {serverSendResult.gas_speed && ` · Gas: ${String(serverSendResult.gas_speed)}`}
+                      {serverSendResult.gas_price_gwei && ` (${String(serverSendResult.gas_price_gwei)} Gwei)`}
                     </div>
                     {serverSendResult.tx_hash && (
                       <a href={`https://etherscan.io/tx/${serverSendResult.tx_hash}`} target="_blank" rel="noreferrer"
@@ -804,6 +867,7 @@ export default function WalletPage() {
             </div>
             <div style={{ fontSize: 12, color: '#6b7280' }}>
               From: {shortAddr(String(sendResult.from ?? ''))} · To: {shortAddr(String(sendResult.to ?? ''))} · Amount: {String(sendResult.amount ?? '')} {String(sendResult.token ?? '')}
+              {sendResult.gas_speed && ` · Gas: ${String(sendResult.gas_speed)}`}
             </div>
             {sendResult.tx_hash && (
               <a href={`https://etherscan.io/tx/${sendResult.tx_hash}`} target="_blank" rel="noreferrer"

@@ -6,6 +6,8 @@ import {
   resolveTokenAddress,
   ERC20_ABI,
   getSenderPrivateKey,
+  ETHERSCAN_API_URLS,
+  fetchEtherscan,
 } from '@/utils/wallet';
 
 // ─── Security note ────────────────────────────────────────────────────────────
@@ -27,6 +29,7 @@ export async function POST(req: NextRequest) {
     to?: string;
     amount?: string;
     token?: string; // 'eth' | 'usdt' | '0x...'
+    gas_speed?: 'slow' | 'standard' | 'fast';
   };
   try {
     body = await req.json();
@@ -34,7 +37,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 });
   }
 
-  const { chain_id: chainId, to, amount, token = 'eth' } = body;
+  const { chain_id: chainId, to, amount, token = 'eth', gas_speed = 'standard' } = body;
 
   if (!chainId) return NextResponse.json({ error: 'Missing: chain_id' }, { status: 400 });
   if (!to || !isValidEVMAddress(to)) return NextResponse.json({ error: 'Missing or invalid: to address' }, { status: 400 });
@@ -51,6 +54,28 @@ export async function POST(req: NextRequest) {
   const wallet = new ethers.Wallet(privateKey, provider);
   const fromAddress = wallet.address;
 
+  // Fetch gas price from Etherscan oracle
+  let gasPrice: bigint | undefined;
+  const etherscanBase = ETHERSCAN_API_URLS[chainId];
+  if (etherscanBase) {
+    try {
+      type OracleResult = { SafeGasPrice: string; ProposeGasPrice: string; FastGasPrice: string };
+      const oracle = await fetchEtherscan(etherscanBase, {
+        module: 'gastracker', action: 'gasoracle',
+      }, { ttlMs: 15_000 }) as { status: string; result: OracleResult };
+      if (oracle.status === '1' && oracle.result) {
+        const gweiMap: Record<string, string> = {
+          slow: oracle.result.SafeGasPrice,
+          standard: oracle.result.ProposeGasPrice,
+          fast: oracle.result.FastGasPrice,
+        };
+        gasPrice = ethers.parseUnits(gweiMap[gas_speed] ?? oracle.result.ProposeGasPrice, 'gwei');
+      }
+    } catch { /* fall through to auto gas estimate */ }
+  }
+
+  const gasOverride = gasPrice ? { gasPrice } : {};
+
   try {
     if (token.toLowerCase() === 'eth') {
       // Send native ETH
@@ -62,7 +87,7 @@ export async function POST(req: NextRequest) {
         }, { status: 400 });
       }
 
-      const tx = await wallet.sendTransaction({ to, value });
+      const tx = await wallet.sendTransaction({ to, value, ...gasOverride });
       const receipt = await tx.wait();
 
       return NextResponse.json({
@@ -74,6 +99,8 @@ export async function POST(req: NextRequest) {
         tx_hash: tx.hash,
         block_number: receipt?.blockNumber ?? null,
         status: receipt?.status === 1 ? 'confirmed' : 'failed',
+        gas_speed,
+        gas_price_gwei: gasPrice ? parseFloat(ethers.formatUnits(gasPrice, 'gwei')).toFixed(2) : null,
       });
     }
 
@@ -100,7 +127,7 @@ export async function POST(req: NextRequest) {
       }, { status: 400 });
     }
 
-    const tx = await contract.transfer(to, sendAmount);
+    const tx = await contract.transfer(to, sendAmount, gasOverride);
     const receipt = await tx.wait();
 
     return NextResponse.json({
@@ -113,6 +140,8 @@ export async function POST(req: NextRequest) {
       tx_hash: tx.hash,
       block_number: receipt?.blockNumber ?? null,
       status: receipt?.status === 1 ? 'confirmed' : 'failed',
+      gas_speed,
+      gas_price_gwei: gasPrice ? parseFloat(ethers.formatUnits(gasPrice, 'gwei')).toFixed(2) : null,
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
