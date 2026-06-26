@@ -36,3 +36,7 @@ yarn-error.log*
 next-env.d.ts
 
 /scripts/report
+
+# Hardhat build outputs
+artifacts/
+cache/
