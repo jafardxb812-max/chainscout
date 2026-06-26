@@ -3,10 +3,10 @@
 import { useState, useEffect } from 'react';
 import { useAppKit } from '@reown/appkit/react';
 import {
-  useAccount, useDisconnect, useWriteContract,
+  useAccount, useDisconnect, useWriteContract, useSendTransaction,
   useBalance, useReadContract, useChainId, useSwitchChain,
 } from 'wagmi';
-import { parseUnits, formatUnits, formatEther } from 'viem';
+import { parseUnits, parseEther, formatUnits, formatEther } from 'viem';
 import { walletConnectEnabled } from '@/app/web3-providers';
 
 // USDT contract addresses per chain
@@ -61,6 +61,7 @@ const CHAINS = [
 ];
 
 type Tab = 'balance' | 'usdt' | 'send' | 'bridge' | 'swap' | 'gas' | 'txs';
+type SendToken = 'USDT' | 'ETH';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type AnyObj = Record<string, any>;
@@ -187,6 +188,7 @@ export default function WalletPage() {
   const { address: connectedAddress, isConnected } = useAccount();
   const { disconnect } = useDisconnect();
   const { writeContractAsync } = useWriteContract();
+  const { sendTransactionAsync } = useSendTransaction();
   const connectedChainId = useChainId();
   const { switchChain } = useSwitchChain();
 
@@ -203,6 +205,7 @@ export default function WalletPage() {
   const [usdtTxs, setUsdtTxs] = useState<AnyObj[]>([]);
 
   // send tab
+  const [sendToken,  setSendToken]  = useState<SendToken>('USDT');
   const [sendTo,     setSendTo]     = useState('');
   const [sendAmount, setSendAmount] = useState('');
   const [sendResult, setSendResult] = useState<AnyObj | null>(null);
@@ -225,7 +228,13 @@ export default function WalletPage() {
   const [gas, setGas] = useState<AnyObj | null>(null);
 
   // txs tab
-  const [txs, setTxs] = useState<AnyObj[]>([]);
+  const [txs,        setTxs]        = useState<AnyObj[]>([]);
+  const [txsPage,    setTxsPage]    = useState(1);
+  const [txsHasMore, setTxsHasMore] = useState(false);
+
+  // usdt history pagination
+  const [usdtPage,    setUsdtPage]    = useState(1);
+  const [usdtHasMore, setUsdtHasMore] = useState(false);
 
   useEffect(() => {
     if (connectedAddress) setAddress(connectedAddress);
@@ -257,29 +266,44 @@ export default function WalletPage() {
 
   // ── Fetch handlers ──────────────────────────────────────────────────────────
 
-  async function fetchUsdtHistory() {
+  async function fetchUsdtHistory(append = false) {
+    const page = append ? usdtPage + 1 : 1;
     const data = await call(
-      `/api/wallet/token-transfers?chain_id=${chainId}&address=${address}&token=usdt&offset=30`
+      `/api/wallet/token-transfers?chain_id=${chainId}&address=${address}&token=usdt&offset=20&page=${page}`
     );
-    if (data) setUsdtTxs(Array.isArray(data.transfers) ? data.transfers : []);
+    if (data) {
+      const list = Array.isArray(data.transfers) ? data.transfers : [];
+      setUsdtTxs(prev => append ? [...prev, ...list] : list);
+      setUsdtPage(page);
+      setUsdtHasMore(data.has_more ?? list.length === 20);
+    }
   }
 
   async function doSend() {
-    const usdtAddr = USDT_ADDRESSES[chainId];
-    if (!usdtAddr) { setError(`USDT not supported on chain ${chainId}`); return; }
     if (!sendTo.startsWith('0x') || sendTo.length !== 42) { setError('Invalid recipient address'); return; }
     if (!sendAmount || parseFloat(sendAmount) <= 0) { setError('Enter a valid amount'); return; }
     setLoading(true);
     setError('');
     try {
-      // Signs directly via MetaMask — no server private key needed
-      const txHash = await writeContractAsync({
-        address: usdtAddr,
-        abi: ERC20_TRANSFER_ABI,
-        functionName: 'transfer',
-        args: [sendTo as `0x${string}`, parseUnits(sendAmount, 6)],
-      });
-      setSendResult({ success: true, tx_hash: txHash, from: connectedAddress, to: sendTo, amount: sendAmount });
+      let txHash: string;
+      if (sendToken === 'ETH') {
+        // Send ETH directly via MetaMask
+        txHash = await sendTransactionAsync({
+          to: sendTo as `0x${string}`,
+          value: parseEther(sendAmount),
+        });
+      } else {
+        // Send USDT ERC-20 via MetaMask
+        const usdtAddr = USDT_ADDRESSES[chainId];
+        if (!usdtAddr) { setError(`USDT not supported on chain ${chainId}`); setLoading(false); return; }
+        txHash = await writeContractAsync({
+          address: usdtAddr,
+          abi: ERC20_TRANSFER_ABI,
+          functionName: 'transfer',
+          args: [sendTo as `0x${string}`, parseUnits(sendAmount, 6)],
+        });
+      }
+      setSendResult({ success: true, tx_hash: txHash, token: sendToken, from: connectedAddress, to: sendTo, amount: sendAmount });
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Transaction failed');
     } finally {
@@ -337,17 +361,23 @@ export default function WalletPage() {
     if (data) setGas(data);
   }
 
-  async function fetchTxs() {
+  async function fetchTxs(append = false) {
+    const page = append ? txsPage + 1 : 1;
     const data = await call(
-      `/api/wallet/transactions?chain_id=${chainId}&address=${address}&offset=20`
+      `/api/wallet/transactions?chain_id=${chainId}&address=${address}&offset=20&page=${page}`
     );
-    if (data) setTxs(Array.isArray(data.transactions) ? data.transactions : []);
+    if (data) {
+      const list = Array.isArray(data.transactions) ? data.transactions : [];
+      setTxs(prev => append ? [...prev, ...list] : list);
+      setTxsPage(page);
+      setTxsHasMore(data.has_more ?? list.length === 20);
+    }
   }
 
   function go() {
-    if (tab === 'usdt') fetchUsdtHistory();
-    else if (tab === 'gas')  fetchGas();
-    else if (tab === 'txs')  fetchTxs();
+    if (tab === 'usdt') { setUsdtPage(1); fetchUsdtHistory(); }
+    else if (tab === 'gas') fetchGas();
+    else if (tab === 'txs') { setTxsPage(1); fetchTxs(); }
   }
 
   const needsAddr = tab !== 'gas' && tab !== 'send' && tab !== 'bridge' && tab !== 'swap' && tab !== 'balance';
@@ -449,27 +479,36 @@ export default function WalletPage() {
             )}
           </div>
 
-          {/* Send USDT form */}
+          {/* Send form — ETH or USDT via MetaMask */}
           {tab === 'send' && (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {!isConnected && (
                 <div style={{ padding: '10px 14px', borderRadius: 8, background: '#fefce8', border: '1px solid #fde68a', fontSize: 12, color: '#92400e' }}>
-                  Connect your wallet above to send USDT
+                  Connect your wallet above to send
                 </div>
               )}
+              {/* Token selector */}
+              <div style={{ display: 'flex', gap: 8 }}>
+                {(['ETH', 'USDT'] as SendToken[]).map(t => (
+                  <button key={t} onClick={() => { setSendToken(t); setSendResult(null); setError(''); }}
+                    style={{ flex: 1, padding: '8px', borderRadius: 8, border: `2px solid ${sendToken === t ? '#0d9488' : '#e2e8f0'}`, background: sendToken === t ? '#f0fdfa' : '#fff', color: sendToken === t ? '#0d9488' : '#64748b', fontWeight: 700, fontSize: 14, cursor: 'pointer' }}>
+                    {t === 'ETH' ? '⬡ ETH' : '$ USDT'}
+                  </button>
+                ))}
+              </div>
               <div>
                 <label style={label}>Recipient Address</label>
                 <input value={sendTo} onChange={e => setSendTo(e.target.value)}
                   placeholder="0x..." style={{ ...input, fontFamily: 'monospace' }} />
               </div>
               <div>
-                <label style={label}>Amount (USDT)</label>
+                <label style={label}>Amount ({sendToken})</label>
                 <input type="number" value={sendAmount} onChange={e => setSendAmount(e.target.value)}
-                  placeholder="e.g. 10" style={input} />
+                  placeholder={sendToken === 'ETH' ? 'e.g. 0.01' : 'e.g. 10'} style={input} />
               </div>
               <button onClick={doSend} disabled={loading || !isConnected || !sendTo || !sendAmount}
                 style={btn(!loading && isConnected && !!sendTo && !!sendAmount, '#0d9488')}>
-                {loading ? 'Sending…' : 'Send USDT via MetaMask'}
+                {loading ? 'Sending…' : `Send ${sendToken} via MetaMask`}
               </button>
             </div>
           )}
@@ -578,29 +617,41 @@ export default function WalletPage() {
               <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 14, padding: '40px 0' }}>
                 No USDT transfers found
               </div>
-            ) : usdtTxs.map((tx: AnyObj, i: number) => (
-              <div key={String(tx.hash ?? i)} style={{ padding: '14px 20px', borderBottom: i < usdtTxs.length - 1 ? '1px solid #f8fafc' : 'none' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{
-                      fontSize: 11, padding: '2px 8px', borderRadius: 12, fontWeight: 700,
-                      background: tx.direction === 'incoming' ? '#dcfce7' : '#fef3c7',
-                      color: tx.direction === 'incoming' ? '#16a34a' : '#d97706',
-                    }}>
-                      {tx.direction === 'incoming' ? '↓ IN' : '↑ OUT'}
-                    </span>
-                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{shortAddr(String(tx.hash ?? ''))}</span>
+            ) : (
+              <>
+                {usdtTxs.map((tx: AnyObj, i: number) => (
+                  <div key={String(tx.hash ?? i)} style={{ padding: '14px 20px', borderBottom: '1px solid #f8fafc' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{
+                          fontSize: 11, padding: '2px 8px', borderRadius: 12, fontWeight: 700,
+                          background: tx.direction === 'incoming' ? '#dcfce7' : '#fef3c7',
+                          color: tx.direction === 'incoming' ? '#16a34a' : '#d97706',
+                        }}>
+                          {tx.direction === 'incoming' ? '↓ IN' : '↑ OUT'}
+                        </span>
+                        <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{shortAddr(String(tx.hash ?? ''))}</span>
+                      </div>
+                      <span style={{ fontSize: 14, fontWeight: 700, color: tx.direction === 'incoming' ? '#16a34a' : '#1e293b' }}>
+                        {tx.amount_formatted ?? parseFloat(String(tx.value ?? '0'))} USDT
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8' }}>
+                      <span>{shortAddr(String(tx.from ?? ''))} → {shortAddr(String(tx.to ?? ''))}</span>
+                      <span>{fmtTime(String(tx.timeStamp ?? ''))}</span>
+                    </div>
                   </div>
-                  <span style={{ fontSize: 14, fontWeight: 700, color: tx.direction === 'incoming' ? '#16a34a' : '#1e293b' }}>
-                    {tx.amount_formatted ?? parseFloat(String(tx.value ?? '0'))} USDT
-                  </span>
-                </div>
-                <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8' }}>
-                  <span>{shortAddr(String(tx.from ?? ''))} → {shortAddr(String(tx.to ?? ''))}</span>
-                  <span>{fmtTime(String(tx.timeStamp ?? ''))}</span>
-                </div>
-              </div>
-            ))}
+                ))}
+                {usdtHasMore && (
+                  <div style={{ padding: '12px 20px', textAlign: 'center' }}>
+                    <button onClick={() => fetchUsdtHistory(true)} disabled={loading}
+                      style={{ padding: '8px 24px', borderRadius: 8, border: '1px solid #0d9488', background: '#fff', color: '#0d9488', fontSize: 13, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer' }}>
+                      {loading ? 'Loading…' : 'Load More'}
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
           </div>
         )}
 
@@ -608,13 +659,13 @@ export default function WalletPage() {
         {tab === 'send' && sendResult && (
           <div style={{ ...card, borderColor: '#bbf7d0', background: '#f0fdf4' }}>
             <div style={{ fontSize: 13, fontWeight: 700, color: '#16a34a', marginBottom: 10 }}>
-              ✓ USDT Sent Successfully
+              ✓ {String(sendResult.token ?? 'Token')} Sent Successfully
             </div>
             <div style={{ fontSize: 12, color: '#374151', marginBottom: 6 }}>
               Tx Hash: <span style={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>{String(sendResult.tx_hash ?? '')}</span>
             </div>
             <div style={{ fontSize: 12, color: '#6b7280' }}>
-              From: {shortAddr(String(sendResult.from ?? ''))} · To: {shortAddr(String(sendResult.to ?? ''))} · Amount: {String(sendResult.amount ?? '')} USDT
+              From: {shortAddr(String(sendResult.from ?? ''))} · To: {shortAddr(String(sendResult.to ?? ''))} · Amount: {String(sendResult.amount ?? '')} {String(sendResult.token ?? '')}
             </div>
             {sendResult.tx_hash && (
               <a href={`https://etherscan.io/tx/${sendResult.tx_hash}`} target="_blank" rel="noreferrer"
@@ -769,32 +820,44 @@ export default function WalletPage() {
               <div style={{ textAlign: 'center', color: '#94a3b8', fontSize: 14, padding: '40px 0' }}>
                 Enter a wallet address and click Fetch
               </div>
-            ) : txs.map((tx: AnyObj, i: number) => (
-              <div key={String(tx.hash ?? i)} style={{ padding: '14px 20px', borderBottom: i < txs.length - 1 ? '1px solid #f8fafc' : 'none' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                    <span style={{
-                      fontSize: 11, padding: '2px 8px', borderRadius: 12, fontWeight: 600,
-                      background: tx.direction === 'incoming' ? '#dcfce7' : '#fee2e2',
-                      color: tx.direction === 'incoming' ? '#16a34a' : '#dc2626',
-                    }}>
-                      {String(tx.direction ?? (String(tx.from ?? '').toLowerCase() === address.toLowerCase() ? 'OUT' : 'IN')).toUpperCase()}
-                    </span>
-                    <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{shortAddr(String(tx.hash ?? ''))}</span>
+            ) : (
+              <>
+                {txs.map((tx: AnyObj, i: number) => (
+                  <div key={String(tx.hash ?? i)} style={{ padding: '14px 20px', borderBottom: '1px solid #f8fafc' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{
+                          fontSize: 11, padding: '2px 8px', borderRadius: 12, fontWeight: 600,
+                          background: tx.direction === 'incoming' ? '#dcfce7' : '#fee2e2',
+                          color: tx.direction === 'incoming' ? '#16a34a' : '#dc2626',
+                        }}>
+                          {String(tx.direction ?? (String(tx.from ?? '').toLowerCase() === address.toLowerCase() ? 'OUT' : 'IN')).toUpperCase()}
+                        </span>
+                        <span style={{ fontFamily: 'monospace', fontSize: 12, color: '#64748b' }}>{shortAddr(String(tx.hash ?? ''))}</span>
+                      </div>
+                      <span style={{ fontSize: 12, fontWeight: 600, color: tx.isError === '1' ? '#dc2626' : '#16a34a' }}>
+                        {tx.isError === '1' ? 'Failed' : 'Success'}
+                      </span>
+                    </div>
+                    <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8' }}>
+                      <span>{shortAddr(String(tx.from ?? ''))} → {shortAddr(String(tx.to ?? ''))}</span>
+                      {tx.value_eth && <span>{parseFloat(String(tx.value_eth)).toFixed(5)} ETH</span>}
+                    </div>
+                    {tx.timeStamp && (
+                      <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 4 }}>{fmtTime(String(tx.timeStamp))}</div>
+                    )}
                   </div>
-                  <span style={{ fontSize: 12, fontWeight: 600, color: tx.isError === '1' ? '#dc2626' : '#16a34a' }}>
-                    {tx.isError === '1' ? 'Failed' : 'Success'}
-                  </span>
-                </div>
-                <div style={{ marginTop: 6, display: 'flex', justifyContent: 'space-between', fontSize: 12, color: '#94a3b8' }}>
-                  <span>{shortAddr(String(tx.from ?? ''))} → {shortAddr(String(tx.to ?? ''))}</span>
-                  {tx.value_eth && <span>{parseFloat(String(tx.value_eth)).toFixed(5)} ETH</span>}
-                </div>
-                {tx.timeStamp && (
-                  <div style={{ fontSize: 11, color: '#cbd5e1', marginTop: 4 }}>{fmtTime(String(tx.timeStamp))}</div>
+                ))}
+                {txsHasMore && (
+                  <div style={{ padding: '12px 20px', textAlign: 'center' }}>
+                    <button onClick={() => fetchTxs(true)} disabled={loading}
+                      style={{ padding: '8px 24px', borderRadius: 8, border: '1px solid #2563eb', background: '#fff', color: '#2563eb', fontSize: 13, fontWeight: 600, cursor: loading ? 'not-allowed' : 'pointer' }}>
+                      {loading ? 'Loading…' : 'Load More'}
+                    </button>
+                  </div>
                 )}
-              </div>
-            ))}
+              </>
+            )}
           </div>
         )}
 
