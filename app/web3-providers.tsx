@@ -6,7 +6,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   mainnet, polygon, arbitrum,
 } from '@reown/appkit/networks';
-import { ReactNode, useState } from 'react';
+import { ReactNode, useState, useEffect } from 'react';
 
 const projectId = process.env.NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID ?? 'no-project-id';
 
@@ -34,6 +34,26 @@ export const walletConnectEnabled = !!process.env.NEXT_PUBLIC_WALLETCONNECT_PROJ
 
 export function Web3Providers({ children }: { children: ReactNode }) {
   const [queryClient] = useState(() => new QueryClient());
+
+  // Suppress MetaMask/wallet extension errors that are unhandled rejections
+  // These come from the browser extension auto-reconnect, not our code
+  useEffect(() => {
+    const handler = (event: PromiseRejectionEvent) => {
+      const reason = event.reason;
+      const msg = String(reason?.message ?? reason ?? '');
+      if (
+        msg.includes('MetaMask') ||
+        msg.includes('wallet') ||
+        msg.includes('connect') ||
+        (reason && typeof reason === 'object' && !(reason instanceof Error))
+      ) {
+        event.preventDefault();
+      }
+    };
+    window.addEventListener('unhandledrejection', handler);
+    return () => window.removeEventListener('unhandledrejection', handler);
+  }, []);
+
   return (
     <WagmiProvider config={wagmiAdapter.wagmiConfig}>
       <QueryClientProvider client={queryClient}>
