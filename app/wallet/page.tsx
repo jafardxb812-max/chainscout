@@ -276,6 +276,12 @@ export default function WalletPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, chainId]);
 
+  // Auto-load server wallet when server tab opens or chain changes
+  useEffect(() => {
+    if (tab === 'server') fetchServerWallet();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab, chainId]);
+
   async function fetchLiveGas() {
     try {
       const res = await fetch(`/api/wallet/gas?chain_id=${chainId}`);
@@ -721,20 +727,32 @@ export default function WalletPage() {
                     {serverWallet.funded ? '● Funded' : '○ Empty — send ETH/USDT to this address to fund'}
                   </div>
 
-                  {/* Balances */}
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginTop: 16 }}>
+                  {/* Balances + Gas */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 16 }}>
                     {[
                       { label: 'ETH Balance', value: serverWallet.balances?.eth?.amount ?? '–', symbol: 'ETH', color: '#2563eb' },
                       { label: 'USDT Balance', value: serverWallet.balances?.usdt?.amount ?? '–', symbol: 'USDT', color: '#0d9488' },
+                      { label: 'Gas (Standard)', value: liveGas ? liveGas.standard.toString() : '…', symbol: 'Gwei', color: '#d97706' },
                     ].map(b => (
                       <div key={b.label} style={{ padding: '14px', borderRadius: 10, background: '#f8fafc', border: '1px solid #e2e8f0' }}>
                         <div style={{ fontSize: 11, color: '#94a3b8', marginBottom: 4 }}>{b.label}</div>
-                        <div style={{ fontSize: 22, fontWeight: 700, color: b.color }}>
-                          {b.value} <span style={{ fontSize: 12, color: '#94a3b8' }}>{b.symbol}</span>
+                        <div style={{ fontSize: 20, fontWeight: 700, color: b.color }}>
+                          {b.value} <span style={{ fontSize: 11, color: '#94a3b8' }}>{b.symbol}</span>
                         </div>
                       </div>
                     ))}
                   </div>
+                  {/* Slow / Fast gas inline */}
+                  {liveGas && (
+                    <div style={{ display: 'flex', gap: 8, marginTop: 8 }}>
+                      <div style={{ flex: 1, padding: '6px 10px', borderRadius: 8, background: '#f0fdf4', border: '1px solid #bbf7d0', fontSize: 11, color: '#16a34a', textAlign: 'center' }}>
+                        🐢 Slow: {liveGas.slow} Gwei
+                      </div>
+                      <div style={{ flex: 1, padding: '6px 10px', borderRadius: 8, background: '#fff1f2', border: '1px solid #fecdd3', fontSize: 11, color: '#e11d48', textAlign: 'center' }}>
+                        🚀 Fast: {liveGas.fast} Gwei
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 {/* Send from server wallet */}
